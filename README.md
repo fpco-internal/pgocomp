@@ -46,7 +46,7 @@ func main() {
 }
 ```
 
-# Running the samples
+## Running the samples
 
 1. Setup a pulumi account at https://app.pulumi.com
 2. Setup an aws cli with you credentials
