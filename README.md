@@ -44,3 +44,11 @@ func main() {
 	})
 
 }
+
+
+# Running the samples
+
+1. Setup a pulumi account at https://app.pulumi.com
+2. Setup an aws cli with you credentials
+3. Cd into a sample directory. eg: "cd cmd/samples/aws-basic-network"
+4. Run the command pulumi up
