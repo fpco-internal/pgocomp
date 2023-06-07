@@ -3,8 +3,14 @@ module fpco-internal/pgocomp
 go 1.20
 
 require (
+	github.com/pulumi/pulumi-aws-native/sdk v0.63.0
 	github.com/pulumi/pulumi-aws/sdk/v5 v5.41.0
 	github.com/pulumi/pulumi/sdk/v3 v3.68.0
+)
+
+require (
+	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
 )
 
 require (
@@ -50,6 +56,7 @@ require (
 	github.com/skeema/knownhosts v1.1.0 // indirect
 	github.com/spf13/cobra v1.6.1 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/stretchr/testify v1.8.4
 	github.com/texttheater/golang-levenshtein v1.0.1 // indirect
 	github.com/tweekmonster/luser v0.0.0-20161003172636-3fa38070dbd7 // indirect
 	github.com/uber/jaeger-client-go v2.30.0+incompatible // indirect
