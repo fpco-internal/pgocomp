@@ -1,4 +1,4 @@
-module fpco-internal/pgocomp
+module github.com/fpco-internal/pgocomp
 
 go 1.20
 

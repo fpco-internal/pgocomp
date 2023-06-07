@@ -1,8 +1,9 @@
 package awscecs
 
 import (
-	"fpco-internal/pgocomp"
-	"fpco-internal/pgocomp/pkg/awsc"
+	"github.com/fpco-internal/pgocomp/pkg/awsc"
+
+	"github.com/fpco-internal/pgocomp"
 
 	"github.com/pulumi/pulumi-aws-native/sdk/go/aws/ecs"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"

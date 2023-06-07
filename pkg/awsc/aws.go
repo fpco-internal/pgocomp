@@ -1,7 +1,7 @@
 package awsc
 
 import (
-	"fpco-internal/pgocomp"
+	"github.com/fpco-internal/pgocomp"
 
 	"github.com/pulumi/pulumi-aws-native/sdk/go/aws/ecs"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws"

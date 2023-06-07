@@ -1,8 +1,9 @@
 package main
 
 import (
-	"fpco-internal/pgocomp/pkg/awsc/awscinfra"
 	"os"
+
+	"github.com/fpco-internal/pgocomp/pkg/awsc/awscinfra"
 
 	"github.com/pulumi/pulumi-aws-native/sdk/go/aws/ecs"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"

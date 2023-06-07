@@ -2,9 +2,11 @@ package awscinfra
 
 import (
 	"errors"
-	"fpco-internal/pgocomp"
-	"fpco-internal/pgocomp/pkg/awsc"
 	"strconv"
+
+	"github.com/fpco-internal/pgocomp/pkg/awsc"
+
+	"github.com/fpco-internal/pgocomp"
 
 	"github.com/pulumi/pulumi-aws-native/sdk/go/aws/ecs"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws"
