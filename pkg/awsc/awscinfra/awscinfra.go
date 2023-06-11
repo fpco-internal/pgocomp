@@ -2,20 +2,22 @@ package awscinfra
 
 import (
 	"errors"
+	"regexp"
 	"strconv"
 
 	"github.com/fpco-internal/pgocomp/pkg/awsc"
 
 	"github.com/fpco-internal/pgocomp"
 
-	"github.com/pulumi/pulumi-aws-native/sdk/go/aws/ecs"
+	ecsn "github.com/pulumi/pulumi-aws-native/sdk/go/aws/ecs"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
+	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ecs"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/lb"
+	ecsx "github.com/pulumi/pulumi-awsx/sdk/go/awsx/ecs"
+
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
-
-//TODO implement TAGs on every pulumi Resource Create.. method
 
 // CreateSingleRegionInfra creates a Region Component thar comprises of a Vpc and its subcomponents
 func CreateSingleRegionInfra(name string, params SingleRegionParameters) *pgocomp.Component[*SingleRegionInfra] {
@@ -149,11 +151,12 @@ func CreateLoadBalancerComponent(name string, params LoadBalancerParameters, pro
 func CreateECSClusterComponents(name string, params []ECSClusterParameters, provider *aws.Provider, subnets []*ec2.Subnet, lbcomp *LoadBalancerComponent) *pgocomp.Component[[]*ECSClusterComponent] {
 	return pgocomp.NewComponent(name, func(ctx *pulumi.Context) ([]*ECSClusterComponent, error) {
 		var clusters []*ECSClusterComponent
-		for i, clusterParams := range params {
+
+		for _, clusterParams := range params {
 			if !clusterParams.Active {
 				continue
 			}
-			if err := CreateECSClusterComponent(name+"-"+strconv.Itoa(i), clusterParams, provider, subnets, lbcomp).GetAndThen(ctx, func(cluster *pgocomp.GetComponentResponse[*ECSClusterComponent]) error {
+			if err := CreateECSClusterComponent(name, clusterParams, provider, subnets, lbcomp).GetAndThen(ctx, func(cluster *pgocomp.GetComponentResponse[*ECSClusterComponent]) error {
 				clusters = append(clusters, cluster.Component)
 				return nil
 			}); err != nil {
@@ -169,16 +172,17 @@ func CreateECSClusterComponent(name string, params ECSClusterParameters, provide
 	if !params.Active {
 		return pgocomp.NewInactiveComponent[*ECSClusterComponent](name)
 	}
+
 	return pgocomp.NewComponent(name, func(ctx *pulumi.Context) (*ECSClusterComponent, error) {
 		var cc ECSClusterComponent
 		var err = errors.Join(
-			CreateECSCluster(name, params, provider).GetAndThen(ctx, func(cluster *pgocomp.GetComponentResponse[*ecs.Cluster]) error {
+			CreateECSCluster(name+"-"+params.Name, params, provider).GetAndThen(ctx, func(cluster *pgocomp.GetComponentResponse[*ecs.Cluster]) error {
 				if !params.Active {
 					return nil
 				}
 				cc.Cluster = cluster
-				return CreateECSServiceComponents(name+"-services", params.Services, provider, cluster.Component, subnets, lbcomp).GetAndThen(ctx, func(svcs *pgocomp.GetComponentResponse[[]*ecs.Service]) error {
-					cc.Services = svcs
+				return CreateEcsNativeFargateServiceComponents(cluster.Name+"-service", params.Services, provider, cluster.Component, subnets, lbcomp).GetAndThen(ctx, func(svcs *pgocomp.GetComponentResponse[[]*ecsn.Service]) error {
+					cc.FargateServices = svcs
 					return nil
 				})
 			}),
@@ -187,15 +191,15 @@ func CreateECSClusterComponent(name string, params ECSClusterParameters, provide
 	})
 }
 
-// CreateECSServiceComponents takes some paramenters and creates a new Network Partition
-func CreateECSServiceComponents(name string, params []ECSServiceParameters, provider *aws.Provider, cluster *ecs.Cluster, subnets []*ec2.Subnet, lbcomp *LoadBalancerComponent) *pgocomp.Component[[]*ecs.Service] {
-	return pgocomp.NewComponent(name, func(ctx *pulumi.Context) ([]*ecs.Service, error) {
-		var response []*ecs.Service
+// CreateEcsxFargateServiceComponents takes some paramenters and creates a new Network Partition
+func CreateEcsxFargateServiceComponents(name string, params []ECSServiceParameters, provider *aws.Provider, cluster *ecs.Cluster, subnets []*ec2.Subnet, lbcomp *LoadBalancerComponent) *pgocomp.Component[[]*ecsx.FargateService] {
+	return pgocomp.NewComponent(name, func(ctx *pulumi.Context) ([]*ecsx.FargateService, error) {
+		var response []*ecsx.FargateService
 		for i, svcParams := range params {
 			if !svcParams.Active {
 				continue
 			}
-			if err := CreateServiceComponent(name+"-"+strconv.Itoa(i), svcParams, provider, cluster, subnets, lbcomp).GetAndThen(ctx, func(svc *pgocomp.GetComponentResponse[*ecs.Service]) error {
+			if err := CreateEcsxFargateServiceComponent(name+"-"+strconv.Itoa(i), svcParams, provider, cluster, subnets, lbcomp).GetAndThen(ctx, func(svc *pgocomp.GetComponentResponse[*ecsx.FargateService]) error {
 				response = append(response, svc.Component)
 				return nil
 			}); err != nil {
@@ -206,82 +210,164 @@ func CreateECSServiceComponents(name string, params []ECSServiceParameters, prov
 	})
 }
 
-// CreateServiceComponent creates bla bla bla
-func CreateServiceComponent(name string, params ECSServiceParameters, provider *aws.Provider, cluster *ecs.Cluster, subnets []*ec2.Subnet, lbcomp *LoadBalancerComponent) *pgocomp.Component[*ecs.Service] {
-	if !params.Active {
-		return pgocomp.NewInactiveComponent[*ecs.Service](name)
+func matchOrPanic(pattern string, str string) bool {
+	b, err := regexp.MatchString(pattern, str)
+	if err != nil {
+		panic(err)
 	}
-	return pgocomp.NewComponent(name, func(ctx *pulumi.Context) (*ecs.Service, error) {
-		var svc *ecs.Service
-		dependsOn := []pulumi.Resource{cluster, lbcomp.LoadBalancer.Component}
-		for _, subnet := range subnets {
-			dependsOn = append(dependsOn, subnet)
-		}
-		var ecsLaunchType ecs.ServiceLaunchType = ecs.ServiceLaunchTypeFargate
-		if params.LaunchType == EC2LaunchType {
-			ecsLaunchType = ecs.ServiceLaunchTypeEc2
-		}
-		var loadBalancerArray ecs.ServiceLoadBalancerArray
-		var containerDefinitions ecs.TaskDefinitionContainerDefinitionArray
-		for _, containerParam := range params.Containers {
-			containerParam.Definition.Name = pulumi.String(containerParam.Name) //overwrides the definition.Name attribute
-			containerDefinitions = append(containerDefinitions, containerParam.Definition)
-			for _, loadBalancerInfo := range containerParam.LoadBalancerInfo {
-				loadBalancerArray = append(loadBalancerArray, ecs.ServiceLoadBalancerArgs{
-					ContainerName:  pulumi.String(containerParam.Name),
-					ContainerPort:  pulumi.Int(loadBalancerInfo.ContainerPort),
-					TargetGroupArn: lbcomp.targetGroups.Component[loadBalancerInfo.TargetGroupLookupName].ID(),
-				})
-				dependsOn = append(dependsOn, lbcomp.targetGroups.Component[loadBalancerInfo.TargetGroupLookupName])
+	return b
+}
+
+// CreateEcsNativeFargateServiceComponents creates a list of fargate services
+func CreateEcsNativeFargateServiceComponents(name string, svcParams []ECSServiceParameters, provider *aws.Provider, cluster *ecs.Cluster, subnets []*ec2.Subnet, lbcomp *LoadBalancerComponent) *pgocomp.Component[[]*ecsn.Service] {
+	return pgocomp.NewComponent(name, func(ctx *pulumi.Context) ([]*ecsn.Service, error) {
+		var response []*ecsn.Service
+
+		for _, params := range svcParams {
+			if !params.Active {
+				continue
 			}
-		}
-		var err = CreateFargateTaskDefinition(name+"-task", params, provider, cluster, &containerDefinitions).GetAndThen(ctx, func(taskDef *pgocomp.GetComponentResponse[*ecs.TaskDefinition]) error {
-			var customResources []*pulumi.CustomResourceState
-			for _, subnet := range subnets {
-				customResources = append(customResources, &subnet.CustomResourceState)
-			}
-			awsc.NewService(name, &ecs.ServiceArgs{
-				Cluster:        cluster.ID(),
-				DesiredCount:   pulumi.Int(params.DesiredCount),
-				LaunchType:     ecsLaunchType,
-				TaskDefinition: taskDef.Component.ID(),
-				NetworkConfiguration: ecs.ServiceNetworkConfigurationArgs{
-					AwsvpcConfiguration: ecs.ServiceAwsVpcConfigurationArgs{
-						AssignPublicIp: params.GetPublicIP(),
-						Subnets:        awsc.ToIDStringArray(customResources...),
-						SecurityGroups: awsc.ToIDStringArray(&lbcomp.SecurityGroup.Component.CustomResourceState),
-					},
+			err := awsc.NewEcsNativeTaskDefinition(name+"-task-"+params.Name, &ecsn.TaskDefinitionArgs{
+				NetworkMode: pulumi.String("awsvpc"),
+				RequiresCompatibilities: pulumi.StringArray{
+					pulumi.String("FARGATE"),
 				},
-				LoadBalancers: loadBalancerArray,
-				//TODO: fix delete service automatically by forcing it
-			},
-				pulumi.Provider(provider),
-				pulumi.DependsOn(dependsOn)).GetAndThen(ctx, func(service *pgocomp.GetComponentResponse[*ecs.Service]) error {
-				svc = service.Component
-				return nil
+				Cpu:                  pulumi.String(strconv.Itoa(params.CPU)),
+				Memory:               pulumi.String(strconv.Itoa(params.Memory)),
+				ContainerDefinitions: params.TaskDefinitionContainerDefinitionArray(),
+			}, func() []pulumi.ResourceOption {
+				dependsOn := []pulumi.Resource{cluster}
+				for _, subnet := range subnets {
+					dependsOn = append(dependsOn, subnet)
+				}
+				for _, c := range params.Containers {
+					for _, p := range c.PortMappings {
+						if tg, ok := lbcomp.targetGroups.Component[p.TargetGroupLookupName]; ok {
+							dependsOn = append(dependsOn, tg, lbcomp.LoadBalancer.Component)
+						}
+					}
+				}
+				return []pulumi.ResourceOption{
+					pulumi.Provider(provider),
+					pulumi.DependsOn(dependsOn),
+					pulumi.ReplaceOnChanges([]string{"*"}),
+				}
+			}()...).GetAndThen(ctx, func(taskDef *pgocomp.GetComponentResponse[*ecsn.TaskDefinition]) error {
+				return awsc.NewECSNativeService(name+"-"+params.Name, &ecsn.ServiceArgs{
+					ServiceName:    pulumi.String(params.Name),
+					Cluster:        cluster.ID(),
+					DesiredCount:   pulumi.Int(params.DesiredCount),
+					LaunchType:     ecsn.ServiceLaunchTypeFargate,
+					TaskDefinition: taskDef.Component.ID(),
+					NetworkConfiguration: ecsn.ServiceNetworkConfigurationArgs{
+						AwsvpcConfiguration: ecsn.ServiceAwsVpcConfigurationArgs{
+							AssignPublicIp: func() ecsn.ServiceAwsVpcConfigurationAssignPublicIp {
+								if params.AssignPublicIP {
+									return ecsn.ServiceAwsVpcConfigurationAssignPublicIpEnabled
+								}
+								return ecsn.ServiceAwsVpcConfigurationAssignPublicIpDisabled
+							}(),
+							Subnets: func() pulumi.StringArray {
+								var array pulumi.StringArray
+								for _, subnet := range subnets {
+									array = append(array, subnet.ID())
+								}
+								return array
+							}(),
+							SecurityGroups: awsc.ToIDStringArray(&lbcomp.SecurityGroup.Component.CustomResourceState),
+						},
+					},
+					LoadBalancers: func() (array ecsn.ServiceLoadBalancerArray) {
+						for _, c := range params.Containers {
+							for _, p := range c.PortMappings {
+								if tg, ok := lbcomp.targetGroups.Component[p.TargetGroupLookupName]; ok {
+									array = append(array, ecsn.ServiceLoadBalancerArgs{
+										ContainerName:  pulumi.String(c.Name),
+										ContainerPort:  pulumi.Int(p.ContainerPort),
+										TargetGroupArn: tg.ID(),
+									})
+								}
+							}
+						}
+						return
+					}(),
+				},
+					pulumi.ReplaceOnChanges([]string{"*"}),
+					pulumi.DeletedWith(cluster),
+					pulumi.Provider(provider),
+					pulumi.DependsOn([]pulumi.Resource{cluster, taskDef.Component})).GetAndThen(ctx, func(svc *pgocomp.GetComponentResponse[*ecsn.Service]) error {
+					response = append(response, svc.Component)
+					return nil
+				})
 			})
-			return nil
-		})
-		return svc, err
+			if err != nil {
+				return nil, err
+			}
+		}
+		return response, nil
 	})
 }
 
-// CreateFargateTaskDefinition creates TaskDefinition for the Service
-func CreateFargateTaskDefinition(name string, params ECSServiceParameters, provider *aws.Provider, cluster *ecs.Cluster, containerDefinitions *ecs.TaskDefinitionContainerDefinitionArray) *pgocomp.Component[*ecs.TaskDefinition] {
-
-	if params.LaunchType == FargateSpotLaunchType {
-		params.LaunchType = FargateLaunchType
+// CreateEcsxFargateServiceComponent creates bla bla bla
+func CreateEcsxFargateServiceComponent(name string, params ECSServiceParameters, provider *aws.Provider, cluster *ecs.Cluster, subnets []*ec2.Subnet, lbcomp *LoadBalancerComponent) *pgocomp.Component[*ecsx.FargateService] {
+	if !params.Active {
+		return pgocomp.NewInactiveComponent[*ecsx.FargateService](name)
 	}
-
-	return awsc.NewTaskDefinition(name, &ecs.TaskDefinitionArgs{
-		Cpu:    pulumi.String(params.CPU),
-		Memory: pulumi.String(params.Memory),
-		RequiresCompatibilities: pulumi.StringArray{
-			pulumi.String(params.LaunchType),
-		},
-		ContainerDefinitions: containerDefinitions,
-		NetworkMode:          pulumi.String("awsvpc"),
-	}, pulumi.Provider(provider), pulumi.ReplaceOnChanges([]string{"*"}), pulumi.DependsOn([]pulumi.Resource{cluster}))
+	return pgocomp.NewComponent(name, func(ctx *pulumi.Context) (*ecsx.FargateService, error) {
+		var response *ecsx.FargateService
+		dependsOn := []pulumi.Resource{cluster}
+		var subnetStates []*pulumi.CustomResourceState
+		for _, subnet := range subnets {
+			dependsOn = append(dependsOn, subnet)
+			subnetStates = append(subnetStates, &subnet.CustomResourceState)
+		}
+		var err = awsc.NewFargateService(name, &ecsx.FargateServiceArgs{
+			Cluster:      cluster.ID(),
+			DesiredCount: pulumi.Int(params.DesiredCount),
+			NetworkConfiguration: ecs.ServiceNetworkConfigurationArgs{
+				AssignPublicIp: pulumi.Bool(params.AssignPublicIP),
+				Subnets:        awsc.ToIDStringArray(subnetStates...),
+			},
+			TaskDefinitionArgs: &ecsx.FargateServiceTaskDefinitionArgs{
+				Containers: func() map[string]ecsx.TaskDefinitionContainerDefinitionArgs {
+					var containerDefinitions = make(map[string]ecsx.TaskDefinitionContainerDefinitionArgs)
+					for _, containerParam := range params.Containers {
+						containerDefinitions[containerParam.Name] = ecsx.TaskDefinitionContainerDefinitionArgs{
+							Cpu:    pulumi.Int(containerParam.CPU),
+							Memory: pulumi.Int(containerParam.Memory),
+							Environment: func() ecsx.TaskDefinitionKeyValuePairArray {
+								var environment = make(ecsx.TaskDefinitionKeyValuePairArray, 0, len(containerParam.Environment))
+								for name, value := range containerParam.Environment {
+									environment = append(environment, ecsx.TaskDefinitionKeyValuePairArgs{
+										Name:  pulumi.String(name),
+										Value: pulumi.String(value)},
+									)
+								}
+								return environment
+							}(),
+							Image: pulumi.String(containerParam.Image),
+							PortMappings: func() ecsx.TaskDefinitionPortMappingArray {
+								var array = make(ecsx.TaskDefinitionPortMappingArray, 0, len(containerParam.PortMappings))
+								for _, mapping := range containerParam.PortMappings {
+									array = append(array, ecsx.TaskDefinitionPortMappingArgs{
+										ContainerPort: pulumi.Int(mapping.ContainerPort),
+										TargetGroup:   lbcomp.targetGroups.Component[mapping.TargetGroupLookupName],
+									})
+									dependsOn = append(dependsOn, lbcomp.targetGroups.Component[mapping.TargetGroupLookupName])
+								}
+								return array
+							}(),
+						}
+					}
+					return containerDefinitions
+				}(),
+			},
+		}, pulumi.Provider(provider), pulumi.DependsOn(dependsOn)).GetAndThen(ctx, func(service *pgocomp.GetComponentResponse[*ecsx.FargateService]) error {
+			response = service.Component
+			return nil
+		})
+		return response, err
+	})
 }
 
 // CreateECSCluster creates a new ECSCluster
@@ -403,6 +489,19 @@ func CreateSecurityGroup(name string, provider *aws.Provider, vpc *ec2.Vpc) *pgo
 		name,
 		&ec2.SecurityGroupArgs{
 			VpcId: vpc.ID(),
+			Egress: ec2.SecurityGroupEgressArray{
+				ec2.SecurityGroupEgressArgs{
+					FromPort: pulumi.Int(0),
+					ToPort:   pulumi.Int(0),
+					Protocol: pulumi.String("-1"),
+					CidrBlocks: pulumi.StringArray{
+						pulumi.String("0.0.0.0/0"),
+					},
+					Ipv6CidrBlocks: pulumi.StringArray{
+						pulumi.String("::/0"),
+					},
+				},
+			},
 		},
 		pulumi.Provider(provider),
 		pulumi.DependsOn([]pulumi.Resource{vpc}),

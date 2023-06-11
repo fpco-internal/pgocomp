@@ -5,7 +5,6 @@ import (
 
 	"github.com/fpco-internal/pgocomp/pkg/awsc/awscinfra"
 
-	"github.com/pulumi/pulumi-aws-native/sdk/go/aws/ecs"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
@@ -53,66 +52,54 @@ func main() {
 						ECSClusters: []awscinfra.ECSClusterParameters{
 							{
 								Element: awscinfra.Element{Active: true, Tags: map[string]string{"tagname": "tagvalue"}},
+								Name:    "bots",
 								Services: []awscinfra.ECSServiceParameters{
 									{
 										Element: awscinfra.Element{
 											Active: true,
 											Tags: map[string]string{
 												"tagname": "tagvalue",
-											}},
+											},
+										},
+										Name:           "discord",
 										DesiredCount:   1,
-										CPU:            ".25 vCPU",
-										Memory:         "512",
-										AssignPublicIP: false,
-										LaunchType:     awscinfra.FargateLaunchType,
+										CPU:            256,
+										Memory:         512,
+										AssignPublicIP: true,
 										Containers: []awscinfra.ContainerParameters{
 											{
-												Name: "discordbot",
-												Definition: ecs.TaskDefinitionContainerDefinitionArgs{
-													Image:   pulumi.String("gracig/bot:latest"),
-													Command: pulumi.ToStringArray([]string{"/discordbot"}),
-													Environment: ecs.TaskDefinitionKeyValuePairArray{
-														ecs.TaskDefinitionKeyValuePairArgs{
-															Name:  pulumi.String("DISCORD_TOKEN"),
-															Value: pulumi.String(os.Getenv("DISCORD_TOKEN")),
-														},
-													},
+												Name:   "discordbot",
+												Image:  "gracig/bot:latest",
+												CPU:    128,
+												Memory: 256,
+												Environment: map[string]string{
+													"DISCORD_TOKEN": os.Getenv("DISCORD_TOKEN"),
 												},
 											},
 										},
 									},
 									{
 										Element: awscinfra.Element{
-											Active: false,
+											Active: true,
 											Tags: map[string]string{
 												"tagname": "tagvalue",
-											}},
-										DesiredCount:   1,
-										CPU:            ".25 vCPU",
-										Memory:         "512",
+											},
+										},
+										Name:           "simple-web",
+										DesiredCount:   2,
+										CPU:            256,
+										Memory:         512,
 										AssignPublicIP: true,
-										LaunchType:     awscinfra.FargateLaunchType,
 										Containers: []awscinfra.ContainerParameters{
 											{
-												Name: "web80",
-												Definition: ecs.TaskDefinitionContainerDefinitionArgs{
-													Image: pulumi.String("yeasy/simple-web:latest"),
-													PortMappings: ecs.TaskDefinitionPortMappingArray{
-														ecs.TaskDefinitionPortMappingArgs{
-															AppProtocol:   ecs.TaskDefinitionPortMappingAppProtocolHttp,
-															HostPort:      pulumi.Int(80),
-															ContainerPort: pulumi.Int(80),
-															Protocol:      pulumi.String("tcp"),
-														},
-													},
-												},
-												LoadBalancerInfo: []awscinfra.ContainerLBInfo{
-													{
-														ContainerPort:         80,
-														Protocol:              awscinfra.TCP,
-														TargetGroupLookupName: "web80",
-													},
-												},
+												Name:   "web80",
+												Image:  "yeasy/simple-web:latest",
+												CPU:    128,
+												Memory: 256,
+												PortMappings: []awscinfra.ContainerPortMapping{{
+													ContainerPort:         80,
+													TargetGroupLookupName: "web80",
+												}},
 											},
 										},
 									},
@@ -126,12 +113,7 @@ func main() {
 							AvailabilityZone: "us-east-2a",
 							CidrBlock:        "10.0.5.0/24",
 						},
-						SubnetB: awscinfra.SubnetParameters{
-							Element: awscinfra.Element{
-								Active: true,
-								Tags: map[string]string{
-									"tagname": "tagvalue",
-								}},
+						SubnetB: awscinfra.SubnetParameters{Element: awscinfra.Element{Active: true, Tags: map[string]string{"tagname": "tagvalue"}},
 							AvailabilityZone: "us-east-2b",
 							CidrBlock:        "10.0.6.0/24",
 						},

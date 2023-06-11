@@ -3,10 +3,12 @@ package awsc
 import (
 	"github.com/fpco-internal/pgocomp"
 
-	"github.com/pulumi/pulumi-aws-native/sdk/go/aws/ecs"
+	ecsn "github.com/pulumi/pulumi-aws-native/sdk/go/aws/ecs"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
+	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ecs"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/lb"
+	ecsx "github.com/pulumi/pulumi-awsx/sdk/go/awsx/ecs"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
@@ -95,9 +97,19 @@ func NewService(name string, args *ecs.ServiceArgs, opts ...pulumi.ResourceOptio
 	return pgocomp.NewPulumiComponent(ecs.NewService, name, args, opts...)
 }
 
-// NewTaskDefinition is a wrapper to the ec2.NewService function
-func NewTaskDefinition(name string, args *ecs.TaskDefinitionArgs, opts ...pulumi.ResourceOption) *pgocomp.Component[*ecs.TaskDefinition] {
-	return pgocomp.NewPulumiComponent(ecs.NewTaskDefinition, name, args, opts...)
+// NewECSNativeService is a wrapper to the ecsn.NewECSNativeService function
+func NewECSNativeService(name string, args *ecsn.ServiceArgs, opts ...pulumi.ResourceOption) *pgocomp.Component[*ecsn.Service] {
+	return pgocomp.NewPulumiComponent(ecsn.NewService, name, args, opts...)
+}
+
+// NewFargateService is a wrapper to the ec2.NewService function
+func NewFargateService(name string, args *ecsx.FargateServiceArgs, opts ...pulumi.ResourceOption) *pgocomp.Component[*ecsx.FargateService] {
+	return pgocomp.NewPulumiComponent(ecsx.NewFargateService, name, args, opts...)
+}
+
+// NewEcsNativeTaskDefinition is a wrapper to the ec2.NewService function
+func NewEcsNativeTaskDefinition(name string, args *ecsn.TaskDefinitionArgs, opts ...pulumi.ResourceOption) *pgocomp.Component[*ecsn.TaskDefinition] {
+	return pgocomp.NewPulumiComponent(ecsn.NewTaskDefinition, name, args, opts...)
 }
 
 // NewLazyArgsService is a wrapper to the ec2.NewService function

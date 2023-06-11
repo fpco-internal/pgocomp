@@ -3,7 +3,10 @@ package awscinfra
 import (
 	"github.com/fpco-internal/pgocomp"
 
-	"github.com/pulumi/pulumi-aws-native/sdk/go/aws/ecs"
+	ecsn "github.com/pulumi/pulumi-aws-native/sdk/go/aws/ecs"
+	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ecs"
+	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/lb"
@@ -32,6 +35,7 @@ type Element struct {
 // ECSClusterParameters are parameters to create an ECS Cluster
 type ECSClusterParameters struct {
 	Element
+	Name     string
 	Services []ECSServiceParameters
 }
 
@@ -45,21 +49,12 @@ type CapacityProviderParameters struct {
 // ECSServiceParameters defines containers to be used in the Infra
 type ECSServiceParameters struct {
 	Element
+	Name           string
 	DesiredCount   int
-	CPU            string
-	Memory         string
+	CPU            int
+	Memory         int
 	AssignPublicIP bool
-	LaunchType     ECSLaunchType
 	Containers     []ContainerParameters
-}
-
-// GetPublicIP transforms a bool into a PublicIp value
-func (p *ECSServiceParameters) GetPublicIP() ecs.ServiceAwsVpcConfigurationAssignPublicIp {
-	var publicIP = ecs.ServiceAwsVpcConfigurationAssignPublicIpEnabled
-	if !p.AssignPublicIP {
-		publicIP = ecs.ServiceAwsVpcConfigurationAssignPublicIpDisabled
-	}
-	return publicIP
 }
 
 // NetworkPartitionParameters defines the parameter for a network block, like public or private
@@ -70,30 +65,81 @@ type NetworkPartitionParameters struct {
 	ECSClusters  []ECSClusterParameters
 }
 
-// ECSLaunchType set the type of the host that will run the container.
-type ECSLaunchType string
-
-const (
-	//FargateLaunchType runs the container under the Fargate infrastructure
-	FargateLaunchType ECSLaunchType = "FARGATE"
-	//FargateSpotLaunchType runs the container under the Fargate infrastructure
-	FargateSpotLaunchType ECSLaunchType = "FARGATE_SPOT"
-	//EC2LaunchType runs the container under an ECS instance
-	EC2LaunchType ECSLaunchType = "EC2"
-)
-
 // ContainerParameters defines containers to be used in the Infra
 type ContainerParameters struct {
-	//Name is the name of the container. It will ovewrite the Definition.Name attribute
-	Name             string
-	Definition       ecs.TaskDefinitionContainerDefinitionArgs
-	LoadBalancerInfo []ContainerLBInfo
+	Name         string
+	Image        string
+	CPU          int
+	Memory       int
+	PortMappings []ContainerPortMapping
+	Environment  map[string]string
 }
 
-// ContainerLBInfo contains information for service load balancing of a container
-type ContainerLBInfo struct {
+// TaskDefinitionContainerDefinitionArray transform containers into a ECS Native array
+func (c *ECSServiceParameters) TaskDefinitionContainerDefinitionArray() (array ecsn.TaskDefinitionContainerDefinitionArray) {
+	for _, container := range c.Containers {
+		array = append(array, container.TaskDefinitionContainerDefinitionArgs())
+	}
+	return
+}
+
+// TaskDefinitionPortMappingArray transforms this configuration into a ECS Native Port Mapping Array
+func (c *ContainerParameters) TaskDefinitionPortMappingArray() (array ecsn.TaskDefinitionPortMappingArray) {
+	for _, port := range c.PortMappings {
+		array = append(array, ecsn.TaskDefinitionPortMappingArgs{
+			ContainerPort: pulumi.Int(port.ContainerPort),
+			AppProtocol:   port.TaskDefinitionPortMappingAppProtocol(),
+		})
+	}
+	return
+}
+
+// TaskDefinitionPortMappingArgs transforms this configuration into a ECS Native Port Mapping Args
+func (p *ContainerPortMapping) TaskDefinitionPortMappingArgs() (array ecsn.TaskDefinitionPortMappingArgs) {
+	return ecsn.TaskDefinitionPortMappingArgs{
+		ContainerPort: pulumi.Int(p.ContainerPort),
+		AppProtocol:   p.TaskDefinitionPortMappingAppProtocol(),
+	}
+}
+
+// TaskDefinitionPortMappingAppProtocol transforms ContainerPortMapping into a ecs native TaskDefinitionPortMappings
+func (p *ContainerPortMapping) TaskDefinitionPortMappingAppProtocol() ecsn.TaskDefinitionPortMappingAppProtocol {
+	if matchOrPanic("(?i)http2", p.AppProtocol) {
+		return ecsn.TaskDefinitionPortMappingAppProtocolHttp2
+	} else if matchOrPanic("(?i)grpc", p.AppProtocol) {
+		return ecsn.TaskDefinitionPortMappingAppProtocolGrpc
+	} else {
+		return ecsn.TaskDefinitionPortMappingAppProtocolHttp
+	}
+}
+
+// TaskDefinitionKeyValuePairArray transforms this container into a ECS Native KeyValue Pair Array
+func (c *ContainerParameters) TaskDefinitionKeyValuePairArray() (array ecsn.TaskDefinitionKeyValuePairArray) {
+	for key, value := range c.Environment {
+		array = append(array, ecsn.TaskDefinitionKeyValuePairArgs{
+			Name:  pulumi.String(key),
+			Value: pulumi.String(value),
+		})
+	}
+	return
+}
+
+// TaskDefinitionContainerDefinitionArgs transformas a container parameter into a Ecs native container defitinion
+func (c *ContainerParameters) TaskDefinitionContainerDefinitionArgs() ecsn.TaskDefinitionContainerDefinitionArgs {
+	return ecsn.TaskDefinitionContainerDefinitionArgs{
+		Name:         pulumi.String(c.Name),
+		Cpu:          pulumi.Int(c.CPU),
+		Memory:       pulumi.Int(c.Memory),
+		Image:        pulumi.String(c.Image),
+		Environment:  c.TaskDefinitionKeyValuePairArray(),
+		PortMappings: c.TaskDefinitionPortMappingArray(),
+	}
+}
+
+// ContainerPortMapping are the ports the the container exposes
+type ContainerPortMapping struct {
 	ContainerPort         int
-	Protocol              LBProtocol
+	AppProtocol           string //HTTP HTTPS GRPC
 	TargetGroupLookupName string
 }
 
@@ -201,6 +247,6 @@ type LoadBalancerComponent struct {
 
 // ECSClusterComponent holds the created cluster components
 type ECSClusterComponent struct {
-	Cluster  *pgocomp.GetComponentResponse[*ecs.Cluster]
-	Services *pgocomp.GetComponentResponse[[]*ecs.Service]
+	Cluster         *pgocomp.GetComponentResponse[*ecs.Cluster]
+	FargateServices *pgocomp.GetComponentResponse[[]*ecsn.Service]
 }

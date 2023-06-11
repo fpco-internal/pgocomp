@@ -5,12 +5,15 @@ go 1.20
 require (
 	github.com/pulumi/pulumi-aws-native/sdk v0.63.0
 	github.com/pulumi/pulumi-aws/sdk/v5 v5.41.0
+	github.com/pulumi/pulumi-awsx/sdk v1.0.2
 	github.com/pulumi/pulumi/sdk/v3 v3.68.0
 )
 
 require (
+	github.com/Masterminds/semver v1.5.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/pulumi/pulumi-docker/sdk/v3 v3.2.0 // indirect
 )
 
 require (
