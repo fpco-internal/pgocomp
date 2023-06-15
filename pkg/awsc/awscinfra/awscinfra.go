@@ -242,9 +242,15 @@ func CreateLoadBalancerComponent(meta pgocomp.Meta, params LoadBalancerParameter
 							if err := CreateListener(
 								lis.Meta, lis, provider, loadBalancer.Component, tg.Component, sg.Component, certs).GetAndThen(ctx, func(l *pgocomp.GetComponentWithMetaResponse[*lb.Listener]) error {
 								response.Listeners[l.Meta.Name] = l
+								var cidrs pulumi.StringArray
+								if params.IsInternal {
+									cidrs = pulumi.StringArray{vpc.CidrBlock}
+								} else {
+									cidrs = pulumi.StringArray{pulumi.String("0.0.0.0/0")}
+								}
 								return CreateAndAttachTCPIngressSecurityGroupRule(
 									pgocomp.Meta{Name: lis.Meta.Name + "-rule"},
-									provider, sg.Component, lis.Port, lis.Port, []string{"0.0.0.0/0"}).Apply(ctx)
+									provider, sg.Component, lis.Port, lis.Port, cidrs).Apply(ctx)
 							}); err != nil {
 								return err
 							}
@@ -593,13 +599,13 @@ func CreateSecurityGroup(meta pgocomp.Meta, provider *aws.Provider, vpc *ec2.Vpc
 }
 
 // CreateAndAttachTCPIngressSecurityGroupRule takes a meta, a security group, some nework parameters and returns a SecurityGroupRule Component
-func CreateAndAttachTCPIngressSecurityGroupRule(meta pgocomp.Meta, provider *aws.Provider, sg *ec2.SecurityGroup, fromPort, toPort int, cidrBlocks []string) *pgocomp.ComponentWithMeta[*ec2.SecurityGroupRule] {
+func CreateAndAttachTCPIngressSecurityGroupRule(meta pgocomp.Meta, provider *aws.Provider, sg *ec2.SecurityGroup, fromPort, toPort int, cidrBlocks pulumi.StringArray) *pgocomp.ComponentWithMeta[*ec2.SecurityGroupRule] {
 	return awsc.NewSecurityGroupRule(
 		meta, &ec2.SecurityGroupRuleArgs{
 			Type:            pulumi.String("ingress"),
 			Protocol:        pulumi.String(("tcp")),
 			SecurityGroupId: sg.ID(),
-			CidrBlocks:      pulumi.ToStringArray(cidrBlocks),
+			CidrBlocks:      cidrBlocks,
 			FromPort:        pulumi.Int(fromPort),
 			ToPort:          pulumi.Int(toPort),
 		}, pulumi.Provider(provider), pulumi.Protect(meta.Protect), pulumi.DependsOn([]pulumi.Resource{sg}))

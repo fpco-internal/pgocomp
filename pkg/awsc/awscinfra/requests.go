@@ -120,8 +120,9 @@ const (
 // LoadBalancerParameters are parameters used by the CreateSubnet function
 type LoadBalancerParameters struct {
 	pgocomp.Meta
-	Type      LBType
-	Listeners []LBListenerParameters
+	Type       LBType
+	IsInternal bool
+	Listeners  []LBListenerParameters
 }
 
 // LBRuleConditionType ...
