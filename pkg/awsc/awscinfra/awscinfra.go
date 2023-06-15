@@ -379,13 +379,15 @@ func CreateEcsFargateServiceComponent(
 						for _, c := range params.Containers {
 							for _, p := range c.PortMappings {
 								if tg, ok := targetGroups[p.TargetGroupLookupName]; ok {
-									CreateSecurityGroupRuleForTargetGroup(
+									if err := CreateSecurityGroupRuleForTargetGroup(
 										pgocomp.Meta{Name: meta.Name + "-sg-" + p.TargetGroupLookupName + "-rule"},
 										provider,
 										sg.Component,
 										tg,
 										[]string{"0.0.0.0/0"},
-									)
+									).Apply(ctx); err != nil {
+										panic(err)
+									}
 									array = append(array, ecs.ServiceLoadBalancerArgs{
 										ContainerName:  pulumi.String(c.Name),
 										ContainerPort:  pulumi.Int(p.ContainerPort),
@@ -526,7 +528,7 @@ func CreateListener(meta pgocomp.Meta, params LBListenerParameters, provider *aw
 					Conditions:  conditions,
 					Priority:    pulumi.Int(rule.Priority),
 				},
-					pulumi.Provider(provider)).
+					pulumi.Provider(provider), pulumi.Protect(rule.Protect)).
 					Apply(ctx)
 			}
 			return
