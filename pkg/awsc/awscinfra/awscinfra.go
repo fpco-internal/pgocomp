@@ -376,6 +376,7 @@ func CreateEcsFargateServiceComponent(
 						SecurityGroups: pulumi.StringArray{sg.Component.ID()},
 					},
 					LoadBalancers: func() (array ecs.ServiceLoadBalancerArray) {
+
 						for _, c := range params.Containers {
 							for _, p := range c.PortMappings {
 								if tg, ok := targetGroups[p.TargetGroupLookupName]; ok {
@@ -384,7 +385,7 @@ func CreateEcsFargateServiceComponent(
 										provider,
 										sg.Component,
 										tg,
-										[]string{"0.0.0.0/0"},
+										vpc,
 									).Apply(ctx); err != nil {
 										panic(err)
 									}
@@ -605,13 +606,13 @@ func CreateAndAttachTCPIngressSecurityGroupRule(meta pgocomp.Meta, provider *aws
 }
 
 // CreateSecurityGroupRuleForTargetGroup ...
-func CreateSecurityGroupRuleForTargetGroup(meta pgocomp.Meta, provider *aws.Provider, sg *ec2.SecurityGroup, tg *lb.TargetGroup, cidrBlocks []string) *pgocomp.ComponentWithMeta[*ec2.SecurityGroupRule] {
+func CreateSecurityGroupRuleForTargetGroup(meta pgocomp.Meta, provider *aws.Provider, sg *ec2.SecurityGroup, tg *lb.TargetGroup, vpc *ec2.Vpc) *pgocomp.ComponentWithMeta[*ec2.SecurityGroupRule] {
 	return awsc.NewSecurityGroupRule(
 		meta, &ec2.SecurityGroupRuleArgs{
 			Type:            pulumi.String("ingress"),
 			Protocol:        pulumi.String(("tcp")),
 			SecurityGroupId: sg.ID(),
-			CidrBlocks:      pulumi.ToStringArray(cidrBlocks),
+			CidrBlocks:      pulumi.StringArray{vpc.CidrBlock},
 			FromPort:        tg.Port.Elem(),
 			ToPort:          tg.Port.Elem(),
 		}, pulumi.Provider(provider), pulumi.Protect(meta.Protect), pulumi.DependsOn([]pulumi.Resource{sg}))
