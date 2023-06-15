@@ -3,122 +3,105 @@ package main
 import (
 	"os"
 
+	pgo "github.com/fpco-internal/pgocomp"
 	"github.com/fpco-internal/pgocomp/pkg/awsc/awscinfra"
-
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
 func main() {
 	pulumi.Run(func(ctx *pulumi.Context) error {
-		return awscinfra.CreateSingleRegionInfra(
-			"my-infra",
-			awscinfra.SingleRegionParameters{
-				Region: awscinfra.RegionParameters{
-					Element:   awscinfra.Element{Active: true, Tags: map[string]string{"tagname": "tagvalue"}},
-					Region:    "us-east-2",
-					CidrBlock: "10.0.0.0/16",
-					Public: awscinfra.NetworkPartitionParameters{
-						SubnetA: awscinfra.SubnetParameters{
-							Element:          awscinfra.Element{Active: true, Tags: map[string]string{"tagname": "tagvalue"}},
-							AvailabilityZone: "us-east-2a",
-							CidrBlock:        "10.0.0.0/24",
-						},
-						SubnetB: awscinfra.SubnetParameters{
-							Element:          awscinfra.Element{Active: true, Tags: map[string]string{"tagname": "tagvalue"}},
-							AvailabilityZone: "us-east-2b",
-							CidrBlock:        "10.0.1.0/24",
-						},
-						LoadBalancer: awscinfra.LoadBalancerParameters{
-							Element: awscinfra.Element{Active: true, Tags: map[string]string{"tagname": "tagvalue"}},
-							Type:    awscinfra.Application,
-							Listeners: []awscinfra.LBListenerParameters{
-								{
-									Element:               awscinfra.Element{Active: true, Tags: map[string]string{"tagname": "tagvalue"}},
-									Port:                  80,
-									Protocol:              awscinfra.TCP,
-									TargetGroupLookupName: "web80",
-								},
-							},
-							TargetGroups: []awscinfra.LBTargetGroupParameters{
-								{
-									Element:    awscinfra.Element{Active: true, Tags: map[string]string{"tagname": "tagvalue"}},
-									LookupName: "web80",
-									Port:       80,
-									Protocol:   awscinfra.TCP,
-									TargetType: "ip",
-								},
-							},
-						},
-						ECSClusters: []awscinfra.ECSClusterParameters{
-							{
-								Element: awscinfra.Element{Active: true, Tags: map[string]string{"tagname": "tagvalue"}},
-								Name:    "bots",
-								Services: []awscinfra.ECSServiceParameters{
-									{
-										Element: awscinfra.Element{
-											Active: true,
-											Tags: map[string]string{
-												"tagname": "tagvalue",
-											},
-										},
-										Name:           "discord",
-										DesiredCount:   1,
-										CPU:            256,
-										Memory:         512,
-										AssignPublicIP: true,
-										Containers: []awscinfra.ContainerParameters{
-											{
-												Name:   "discordbot",
-												Image:  "gracig/bot:latest",
-												CPU:    128,
-												Memory: 256,
-												Environment: map[string]string{
-													"DISCORD_TOKEN": os.Getenv("DISCORD_TOKEN"),
-												},
-											},
-										},
-									},
-									{
-										Element: awscinfra.Element{
-											Active: true,
-											Tags: map[string]string{
-												"tagname": "tagvalue",
-											},
-										},
-										Name:           "simple-web",
-										DesiredCount:   2,
-										CPU:            256,
-										Memory:         512,
-										AssignPublicIP: true,
-										Containers: []awscinfra.ContainerParameters{
-											{
-												Name:   "web80",
-												Image:  "yeasy/simple-web:latest",
-												CPU:    128,
-												Memory: 256,
-												PortMappings: []awscinfra.ContainerPortMapping{{
-													ContainerPort:         80,
-													TargetGroupLookupName: "web80",
-												}},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-					Private: awscinfra.NetworkPartitionParameters{
-						SubnetA: awscinfra.SubnetParameters{
-							Element:          awscinfra.Element{Active: true, Tags: map[string]string{"tagname": "tagvalue"}},
-							AvailabilityZone: "us-east-2a",
-							CidrBlock:        "10.0.5.0/24",
-						},
-						SubnetB: awscinfra.SubnetParameters{Element: awscinfra.Element{Active: true, Tags: map[string]string{"tagname": "tagvalue"}},
-							AvailabilityZone: "us-east-2b",
-							CidrBlock:        "10.0.6.0/24",
-						},
-					},
+		return awscinfra.New(awscinfra.InfraParameters{
+			Meta: pgo.Meta{Name: "myinfra"},
+			Vpcs: []awscinfra.VpcParameters{{
+				Meta: pgo.Meta{Name: "myvpc"},
+				Provider: awscinfra.ProviderParameters{
+					Meta:   pgo.Meta{Name: "myprovider"},
+					Region: "us-east-1",
 				},
-			}).Apply(ctx)
+				CidrBlock: "10.0.0.0/16",
+				Certificates: []awscinfra.CertificateParameters{{
+					Meta:             pgo.Meta{Name: "mycert", Protect: true},
+					Domain:           "*.aws.llgconsultoria.com",
+					ValidationMethod: awscinfra.ValidationByDNS,
+				}},
+				Partitions: []awscinfra.NetworkPartitionParameters{{
+					Meta:     pgo.Meta{Name: "public"},
+					IsPublic: true,
+					Subnets: []awscinfra.SubnetParameters{{
+						Meta:      pgo.Meta{Name: "subnet1"},
+						CidrBlock: "10.0.1.0/24",
+					}, {
+						Meta:      pgo.Meta{Name: "subnet2"},
+						CidrBlock: "10.0.2.0/24",
+					}},
+					LoadBalancers: []awscinfra.LoadBalancerParameters{{
+						Meta: pgo.Meta{Name: "lb1", Protect: true},
+						Type: awscinfra.Application,
+						Listeners: []awscinfra.LBListenerParameters{{
+							Meta:                  pgo.Meta{Name: "http"},
+							Port:                  80,
+							Protocol:              awscinfra.HTTP,
+							TargetGroupLookupName: "http",
+						}, {
+							Meta:                  pgo.Meta{Name: "http8080"},
+							Port:                  8080,
+							Protocol:              awscinfra.HTTP,
+							TargetGroupLookupName: "http",
+						}, {
+							Meta:                  pgo.Meta{Name: "https"},
+							Port:                  443,
+							Protocol:              awscinfra.LBProtocol(awscinfra.TGProtoHTTPS),
+							TargetGroupLookupName: "http",
+							CertificateLookupName: "mycert",
+						}},
+					}},
+					LBTargetGroups: []awscinfra.LBTargetGroupParameters{{
+						Meta:       pgo.Meta{Name: "http"},
+						Port:       80,
+						Protocol:   awscinfra.TGProtoHTTP,
+						TargetType: awscinfra.TGIp,
+					},
+					},
+					ECSClusters: []awscinfra.ECSClusterParameters{{
+						Meta: pgo.Meta{
+							Name: "cluster1",
+						},
+						Services: []awscinfra.ECSServiceParameters{{
+							Meta: pgo.Meta{
+								Name: "discord",
+							},
+							DesiredCount:   1,
+							CPU:            256,
+							Memory:         512,
+							AssignPublicIP: true,
+							Containers: []awscinfra.ContainerDefinition{{
+								Name:   "discordbot",
+								Image:  "gracig/bot:latest",
+								CPU:    128,
+								Memory: 256,
+								Environment: []awscinfra.ContainerEnvironmentVar{
+									{
+										Name:  "DISCORD_TOKEN",
+										Value: os.Getenv("DISCORD_TOKEN"),
+									},
+								},
+							}, {
+								Name:   "http",
+								Image:  "yeasy/simple-web:latest",
+								CPU:    128,
+								Memory: 256,
+								PortMappings: []awscinfra.ContainerPortMapping{{
+									ContainerPort:         80,
+									HostPort:              80,
+									Protocol:              awscinfra.TGProtoHTTP,
+									TargetGroupLookupName: "http",
+								}}, //PortMappings
+							}}, //Containers
+						}}, //Services
+					}}, //ECSClusters
+				}}, //Partitions
+			}}, //VPCS
+		}, //Infra
+		).Apply(ctx)
 	})
 }

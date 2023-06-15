@@ -5,6 +5,7 @@ import (
 
 	ecsn "github.com/pulumi/pulumi-aws-native/sdk/go/aws/ecs"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws"
+	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/acm"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ecs"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/lb"
@@ -23,101 +24,106 @@ func ToIDStringArray[T pulumi.CustomResourceState](comps ...*pulumi.CustomResour
 }
 
 // NewProvider is a wrapper to the aws.NewProvider function
-func NewProvider(name string, args *aws.ProviderArgs, opts ...pulumi.ResourceOption) *pgocomp.Component[*aws.Provider] {
-	return pgocomp.NewPulumiComponent(aws.NewProvider, name, args, opts...)
+func NewProvider(meta pgocomp.Meta, args *aws.ProviderArgs, opts ...pulumi.ResourceOption) *pgocomp.ComponentWithMeta[*aws.Provider] {
+	return pgocomp.NewPulumiComponentWithMeta(aws.NewProvider, meta, args, opts...)
 }
 
 // NewVpc is a wrapper to the ec2.NewVpc function
-func NewVpc(name string, args *ec2.VpcArgs, opts ...pulumi.ResourceOption) *pgocomp.Component[*ec2.Vpc] {
-	return pgocomp.NewPulumiComponent(ec2.NewVpc, name, args, opts...)
+func NewVpc(meta pgocomp.Meta, args *ec2.VpcArgs, opts ...pulumi.ResourceOption) *pgocomp.ComponentWithMeta[*ec2.Vpc] {
+	return pgocomp.NewPulumiComponentWithMeta(ec2.NewVpc, meta, args, opts...)
 }
 
 // NewListener is a wrapper to the lb.NewListener
-func NewListener(name string, args *lb.ListenerArgs, opts ...pulumi.ResourceOption) *pgocomp.Component[*lb.Listener] {
-	return pgocomp.NewPulumiComponent(lb.NewListener, name, args, opts...)
+func NewListener(meta pgocomp.Meta, args *lb.ListenerArgs, opts ...pulumi.ResourceOption) *pgocomp.ComponentWithMeta[*lb.Listener] {
+	return pgocomp.NewPulumiComponentWithMeta(lb.NewListener, meta, args, opts...)
 }
 
 // NewLoadBalancer is a wrapper to the lb.NewLoadBalancer
-func NewLoadBalancer(name string, args *lb.LoadBalancerArgs, opts ...pulumi.ResourceOption) *pgocomp.Component[*lb.LoadBalancer] {
-	return pgocomp.NewPulumiComponent(lb.NewLoadBalancer, name, args, opts...)
+func NewLoadBalancer(meta pgocomp.Meta, args *lb.LoadBalancerArgs, opts ...pulumi.ResourceOption) *pgocomp.ComponentWithMeta[*lb.LoadBalancer] {
+	return pgocomp.NewPulumiComponentWithMeta(lb.NewLoadBalancer, meta, args, opts...)
 }
 
 // NewTargetGroup is a wrapper to the lb.NewTargetGroup
-func NewTargetGroup(name string, args *lb.TargetGroupArgs, opts ...pulumi.ResourceOption) *pgocomp.Component[*lb.TargetGroup] {
-	return pgocomp.NewPulumiComponent(lb.NewTargetGroup, name, args, opts...)
+func NewTargetGroup(meta pgocomp.Meta, args *lb.TargetGroupArgs, opts ...pulumi.ResourceOption) *pgocomp.ComponentWithMeta[*lb.TargetGroup] {
+	return pgocomp.NewPulumiComponentWithMeta(lb.NewTargetGroup, meta, args, opts...)
 }
 
 // NewSecurityGroup is a wrapper to the ec2.NewSecurityGroup
-func NewSecurityGroup(name string, args *ec2.SecurityGroupArgs, opts ...pulumi.ResourceOption) *pgocomp.Component[*ec2.SecurityGroup] {
-	return pgocomp.NewPulumiComponent(ec2.NewSecurityGroup, name, args, opts...)
+func NewSecurityGroup(meta pgocomp.Meta, args *ec2.SecurityGroupArgs, opts ...pulumi.ResourceOption) *pgocomp.ComponentWithMeta[*ec2.SecurityGroup] {
+	return pgocomp.NewPulumiComponentWithMeta(ec2.NewSecurityGroup, meta, args, opts...)
 }
 
 // NewSecurityGroupRule is a wrapper to the ec2.NewSecurityGroupRule function
-func NewSecurityGroupRule(name string, args *ec2.SecurityGroupRuleArgs, opts ...pulumi.ResourceOption) *pgocomp.Component[*ec2.SecurityGroupRule] {
-	return pgocomp.NewPulumiComponent(ec2.NewSecurityGroupRule, name, args, opts...)
+func NewSecurityGroupRule(meta pgocomp.Meta, args *ec2.SecurityGroupRuleArgs, opts ...pulumi.ResourceOption) *pgocomp.ComponentWithMeta[*ec2.SecurityGroupRule] {
+	return pgocomp.NewPulumiComponentWithMeta(ec2.NewSecurityGroupRule, meta, args, opts...)
 }
 
 // NewSubnet is a wrapper to the ec2.NewSubnet function
-func NewSubnet(name string, args *ec2.SubnetArgs, opts ...pulumi.ResourceOption) *pgocomp.Component[*ec2.Subnet] {
-	return pgocomp.NewPulumiComponent(ec2.NewSubnet, name, args, opts...)
+func NewSubnet(meta pgocomp.Meta, args *ec2.SubnetArgs, opts ...pulumi.ResourceOption) *pgocomp.ComponentWithMeta[*ec2.Subnet] {
+	return pgocomp.NewPulumiComponentWithMeta(ec2.NewSubnet, meta, args, opts...)
 }
 
 // NewInternetGateway is a wrapper to the ec2.NewInternetGateway function
-func NewInternetGateway(name string, args *ec2.InternetGatewayArgs, opts ...pulumi.ResourceOption) *pgocomp.Component[*ec2.InternetGateway] {
-	return pgocomp.NewPulumiComponent(ec2.NewInternetGateway, name, args, opts...)
+func NewInternetGateway(meta pgocomp.Meta, args *ec2.InternetGatewayArgs, opts ...pulumi.ResourceOption) *pgocomp.ComponentWithMeta[*ec2.InternetGateway] {
+	return pgocomp.NewPulumiComponentWithMeta(ec2.NewInternetGateway, meta, args, opts...)
 }
 
 // NewInternetGatewayAttachment is a wrapper to the ec2.NewInternetGatewayAttachment function
-func NewInternetGatewayAttachment(name string, args *ec2.InternetGatewayAttachmentArgs, opts ...pulumi.ResourceOption) *pgocomp.Component[*ec2.InternetGatewayAttachment] {
-	return pgocomp.NewPulumiComponent(ec2.NewInternetGatewayAttachment, name, args, opts...)
+func NewInternetGatewayAttachment(meta pgocomp.Meta, args *ec2.InternetGatewayAttachmentArgs, opts ...pulumi.ResourceOption) *pgocomp.ComponentWithMeta[*ec2.InternetGatewayAttachment] {
+	return pgocomp.NewPulumiComponentWithMeta(ec2.NewInternetGatewayAttachment, meta, args, opts...)
 }
 
 // NewRoute is a wrapper to the ec2.NewRoute function
-func NewRoute(name string, args *ec2.RouteArgs, opts ...pulumi.ResourceOption) *pgocomp.Component[*ec2.Route] {
-	return pgocomp.NewPulumiComponent(ec2.NewRoute, name, args, opts...)
+func NewRoute(meta pgocomp.Meta, args *ec2.RouteArgs, opts ...pulumi.ResourceOption) *pgocomp.ComponentWithMeta[*ec2.Route] {
+	return pgocomp.NewPulumiComponentWithMeta(ec2.NewRoute, meta, args, opts...)
 }
 
 // NewRouteTable is a wrapper to the ec2.NewRouteTable function
-func NewRouteTable(name string, args *ec2.RouteTableArgs, opts ...pulumi.ResourceOption) *pgocomp.Component[*ec2.RouteTable] {
-	return pgocomp.NewPulumiComponent(ec2.NewRouteTable, name, args, opts...)
+func NewRouteTable(meta pgocomp.Meta, args *ec2.RouteTableArgs, opts ...pulumi.ResourceOption) *pgocomp.ComponentWithMeta[*ec2.RouteTable] {
+	return pgocomp.NewPulumiComponentWithMeta(ec2.NewRouteTable, meta, args, opts...)
 }
 
 // NewCluster is a wrapper to the ec2.NewCluster function
-func NewCluster(name string, args *ecs.ClusterArgs, opts ...pulumi.ResourceOption) *pgocomp.Component[*ecs.Cluster] {
-	return pgocomp.NewPulumiComponent(ecs.NewCluster, name, args, opts...)
+func NewCluster(meta pgocomp.Meta, args *ecs.ClusterArgs, opts ...pulumi.ResourceOption) *pgocomp.ComponentWithMeta[*ecs.Cluster] {
+	return pgocomp.NewPulumiComponentWithMeta(ecs.NewCluster, meta, args, opts...)
 }
 
 // NewCapacityProvider is a wrapper to the ec2.NewCapacityProvider function
-func NewCapacityProvider(name string, args *ecs.CapacityProviderArgs, opts ...pulumi.ResourceOption) *pgocomp.Component[*ecs.CapacityProvider] {
-	return pgocomp.NewPulumiComponent(ecs.NewCapacityProvider, name, args, opts...)
+func NewCapacityProvider(meta pgocomp.Meta, args *ecs.CapacityProviderArgs, opts ...pulumi.ResourceOption) *pgocomp.ComponentWithMeta[*ecs.CapacityProvider] {
+	return pgocomp.NewPulumiComponentWithMeta(ecs.NewCapacityProvider, meta, args, opts...)
 }
 
-// NewService is a wrapper to the ec2.NewService function
-func NewService(name string, args *ecs.ServiceArgs, opts ...pulumi.ResourceOption) *pgocomp.Component[*ecs.Service] {
-	return pgocomp.NewPulumiComponent(ecs.NewService, name, args, opts...)
+// NewECSService is a wrapper to the ec2.NewService function
+func NewECSService(meta pgocomp.Meta, args *ecs.ServiceArgs, opts ...pulumi.ResourceOption) *pgocomp.ComponentWithMeta[*ecs.Service] {
+	return pgocomp.NewPulumiComponentWithMeta(ecs.NewService, meta, args, opts...)
 }
 
 // NewECSNativeService is a wrapper to the ecsn.NewECSNativeService function
-func NewECSNativeService(name string, args *ecsn.ServiceArgs, opts ...pulumi.ResourceOption) *pgocomp.Component[*ecsn.Service] {
-	return pgocomp.NewPulumiComponent(ecsn.NewService, name, args, opts...)
+func NewECSNativeService(meta pgocomp.Meta, args *ecsn.ServiceArgs, opts ...pulumi.ResourceOption) *pgocomp.ComponentWithMeta[*ecsn.Service] {
+	return pgocomp.NewPulumiComponentWithMeta(ecsn.NewService, meta, args, opts...)
 }
 
 // NewFargateService is a wrapper to the ec2.NewService function
-func NewFargateService(name string, args *ecsx.FargateServiceArgs, opts ...pulumi.ResourceOption) *pgocomp.Component[*ecsx.FargateService] {
-	return pgocomp.NewPulumiComponent(ecsx.NewFargateService, name, args, opts...)
+func NewFargateService(meta pgocomp.Meta, args *ecsx.FargateServiceArgs, opts ...pulumi.ResourceOption) *pgocomp.ComponentWithMeta[*ecsx.FargateService] {
+	return pgocomp.NewPulumiComponentWithMeta(ecsx.NewFargateService, meta, args, opts...)
 }
 
 // NewEcsNativeTaskDefinition is a wrapper to the ec2.NewService function
-func NewEcsNativeTaskDefinition(name string, args *ecsn.TaskDefinitionArgs, opts ...pulumi.ResourceOption) *pgocomp.Component[*ecsn.TaskDefinition] {
-	return pgocomp.NewPulumiComponent(ecsn.NewTaskDefinition, name, args, opts...)
+func NewEcsNativeTaskDefinition(meta pgocomp.Meta, args *ecsn.TaskDefinitionArgs, opts ...pulumi.ResourceOption) *pgocomp.ComponentWithMeta[*ecsn.TaskDefinition] {
+	return pgocomp.NewPulumiComponentWithMeta(ecsn.NewTaskDefinition, meta, args, opts...)
 }
 
-// NewLazyArgsService is a wrapper to the ec2.NewService function
-func NewLazyArgsService(name string, argsFn func(*pulumi.Context) (*ecs.ServiceArgs, []pulumi.ResourceOption, error)) *pgocomp.Component[*ecs.Service] {
-	return pgocomp.NewLazyArgsPulumiComponent(ecs.NewService, name, argsFn)
+// NewEcsTaskDefinition is a wrapper to the ec2.NewService function
+func NewEcsTaskDefinition(meta pgocomp.Meta, args *ecs.TaskDefinitionArgs, opts ...pulumi.ResourceOption) *pgocomp.ComponentWithMeta[*ecs.TaskDefinition] {
+	return pgocomp.NewPulumiComponentWithMeta(ecs.NewTaskDefinition, meta, args, opts...)
 }
 
 // NewRouteTableAssociation is a wrapper to the ec2.NewRouteTableAssociation function
-func NewRouteTableAssociation(name string, args *ec2.RouteTableAssociationArgs, opts ...pulumi.ResourceOption) *pgocomp.Component[*ec2.RouteTableAssociation] {
-	return pgocomp.NewPulumiComponent(ec2.NewRouteTableAssociation, name, args, opts...)
+func NewRouteTableAssociation(meta pgocomp.Meta, args *ec2.RouteTableAssociationArgs, opts ...pulumi.ResourceOption) *pgocomp.ComponentWithMeta[*ec2.RouteTableAssociation] {
+	return pgocomp.NewPulumiComponentWithMeta(ec2.NewRouteTableAssociation, meta, args, opts...)
+}
+
+// NewCertificate is a wrapped to create a new Acm certificate
+func NewCertificate(meta pgocomp.Meta, args *acm.CertificateArgs, opts ...pulumi.ResourceOption) *pgocomp.ComponentWithMeta[*acm.Certificate] {
+	return pgocomp.NewPulumiComponentWithMeta(acm.NewCertificate, meta, args, opts...)
 }

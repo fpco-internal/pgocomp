@@ -2,6 +2,7 @@ package awscinfra
 
 import (
 	"errors"
+	"fmt"
 	"regexp"
 	"strconv"
 
@@ -9,136 +10,246 @@ import (
 
 	"github.com/fpco-internal/pgocomp"
 
-	ecsn "github.com/pulumi/pulumi-aws-native/sdk/go/aws/ecs"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws"
+	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/acm"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ecs"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/lb"
-	ecsx "github.com/pulumi/pulumi-awsx/sdk/go/awsx/ecs"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
-// CreateSingleRegionInfra creates a Region Component thar comprises of a Vpc and its subcomponents
-func CreateSingleRegionInfra(name string, params SingleRegionParameters) *pgocomp.Component[*SingleRegionInfra] {
-	return pgocomp.NewComponent(name, func(ctx *pulumi.Context) (*SingleRegionInfra, error) {
-		var sgi SingleRegionInfra
-		var err = CreateRegionComponent(name, params.Region).GetAndThen(ctx, func(region *pgocomp.GetComponentResponse[*RegionComponent]) error {
-			sgi.Region = region
-			return nil
-		})
-		return &sgi, err
-	},
-	)
+// New create a new infrastructure
+func New(params InfraParameters) *pgocomp.ComponentWithMeta[*InfraComponent] {
+	return pgocomp.NewComponentWithMeta(params.Meta, func(ctx *pulumi.Context, name string) (response *InfraComponent, err error) {
+		response = &InfraComponent{
+			Vpcs: make(map[string]*pgocomp.GetComponentWithMetaResponse[*VpcComponent]),
+		}
+		for _, vpcParams := range params.Vpcs {
+			err = CreateVpcComponent(vpcParams).GetAndThen(ctx, func(vpc *pgocomp.GetComponentWithMetaResponse[*VpcComponent]) error {
+				response.Vpcs[vpcParams.Name] = vpc
+				return nil
+			})
+			if err != nil {
+				return
+			}
+		}
+		return
+	})
 }
 
-// CreateRegionComponent creates a Region Component thar comprises of a Vpc and its subcomponents
-func CreateRegionComponent(name string, params RegionParameters) *pgocomp.Component[*RegionComponent] {
-	return pgocomp.NewComponent(name, func(ctx *pulumi.Context) (*RegionComponent, error) {
-		var bnc RegionComponent //The result component that will hold all components
-		var err = errors.Join(
-			CreateProvider(name+"-provider", params.Region).GetAndThen(ctx, func(provider *pgocomp.GetComponentResponse[*aws.Provider]) error {
-				bnc.Provider = pgocomp.ExportURN(ctx, provider)
-				return CreateVPC(name+"-vpc", params, provider.Component).GetAndThen(ctx, func(vpc *pgocomp.GetComponentResponse[*ec2.Vpc]) error {
-					bnc.Vpc = vpc
+// CreateVpcComponent creates a Region Component thar comprises of a Vpc and its subcomponents
+func CreateVpcComponent(params VpcParameters) *pgocomp.ComponentWithMeta[*VpcComponent] {
+	return pgocomp.NewComponentWithMeta(params.Meta, func(ctx *pulumi.Context, name string) (response *VpcComponent, err error) {
+		response = &VpcComponent{
+			Partitions:   make(map[string]*pgocomp.GetComponentWithMetaResponse[*NetworkPartitionComponent]),
+			Certificates: make(map[string]*pgocomp.GetComponentWithMetaResponse[*acm.Certificate]),
+		}
+		err = errors.Join(
+			CreateProvider(
+				params.Provider.Meta,
+				params.Provider.Region).GetAndThen(ctx, func(provider *pgocomp.GetComponentWithMetaResponse[*aws.Provider]) error {
+				response.Provider = provider
+				return CreateVPC(params.Meta, params, provider.Component).GetAndThen(ctx, func(vpc *pgocomp.GetComponentWithMetaResponse[*ec2.Vpc]) error {
+					response.Vpc = vpc
 					return errors.Join(
-						CreateInternetGateway(name+"-igw", provider.Component, vpc.Component).GetAndThen(ctx, func(igw *pgocomp.GetComponentResponse[*ec2.InternetGateway]) error {
-							bnc.Gateway.InternetGateway = igw
-							return AttachInternetGatewayToVPC(name+"-igw-vpc-attachment", provider.Component, vpc.Component, igw.Component).GetAndThen(ctx, func(iga *pgocomp.GetComponentResponse[*ec2.InternetGatewayAttachment]) error {
-								bnc.Gateway.VpcGatewayAttachment = iga
-								return CreateRouteTable(name+"-vpc-route-table", provider.Component, vpc.Component).GetAndThen(ctx, func(rt *pgocomp.GetComponentResponse[*ec2.RouteTable]) error {
-									bnc.Gateway.RouteTable = rt
+						CreateInternetGateway(pgocomp.Meta{
+							Name: vpc.Meta.Name + "-igw",
+						}, provider.Component, vpc.Component).GetAndThen(ctx, func(igw *pgocomp.GetComponentWithMetaResponse[*ec2.InternetGateway]) error {
+							response.Gateway.InternetGateway = igw
+							return AttachInternetGatewayToVPC(pgocomp.Meta{
+								Name: vpc.Meta.Name + "-igw-attach",
+							}, provider.Component, vpc.Component, igw.Component).GetAndThen(ctx, func(iga *pgocomp.GetComponentWithMetaResponse[*ec2.InternetGatewayAttachment]) error {
+								response.Gateway.VpcGatewayAttachment = iga
+								return CreateRouteTable(pgocomp.Meta{
+									Name: vpc.Meta.Name + "-igw-routetable",
+								}, provider.Component, vpc.Component).GetAndThen(ctx, func(rt *pgocomp.GetComponentWithMetaResponse[*ec2.RouteTable]) error {
+									response.Gateway.RouteTable = rt
 									return errors.Join(
-										CreateAndAttachDefaultRoute(name+"-default-route", provider.Component, rt.Component, igw.Component, iga.Component).GetAndThen(ctx, func(r *pgocomp.GetComponentResponse[*ec2.Route]) error {
-											bnc.Gateway.DefaultRoute = r
+										CreateAndAttachDefaultRoute(pgocomp.Meta{
+											Name: vpc.Meta.Name + "-igw-default-route",
+										}, provider.Component, rt.Component, igw.Component, iga.Component).GetAndThen(ctx, func(r *pgocomp.GetComponentWithMetaResponse[*ec2.Route]) error {
+											response.Gateway.DefaultRoute = r
 											return nil
 										}),
 									)
 								})
 							})
 						}),
-						CreatePublicNetworkPartition(name+"-public", params.Public, provider.Component, vpc.Component, bnc.Gateway.RouteTable.Component).GetAndThen(ctx, func(npc *pgocomp.GetComponentResponse[*NetworkPartitionComponent]) error {
-							bnc.Partitions.Public = npc
-							return nil
-						}),
-						CreatePrivateNetworkPartition(name+"-private", params.Private, provider.Component, vpc.Component).GetAndThen(ctx, func(npc *pgocomp.GetComponentResponse[*NetworkPartitionComponent]) error {
-							bnc.Partitions.Private = npc
-							return nil
-						}),
+						func() (err error) {
+							for _, certificate := range params.Certificates {
+								err = CreateCertificate(certificate.Meta, certificate, provider.Component).
+									GetAndThen(ctx, func(cert *pgocomp.GetComponentWithMetaResponse[*acm.Certificate]) (err error) {
+										response.Certificates[cert.Meta.Name] = cert
+										return
+									})
+								if err != nil {
+									break
+								}
+							}
+							return
+						}(),
+						func() (err error) {
+							for _, partition := range params.Partitions {
+								certs := make(map[string]*acm.Certificate)
+								for k, v := range response.Certificates {
+									certs[k] = v.Component
+								}
+								err = CreateNetworkPartition(
+									partition.Meta, partition, provider.Component, vpc.Component, response.Gateway.RouteTable.Component, certs).
+									GetAndThen(ctx, func(npc *pgocomp.GetComponentWithMetaResponse[*NetworkPartitionComponent]) error {
+										response.Partitions[npc.Meta.Name] = npc
+										return nil
+									})
+								if err != nil {
+									break
+								}
+							}
+							return
+						}(),
 					)
 				})
 			}),
 		)
-		return &bnc, err
+		return
 	},
 	)
 }
 
-// CreatePublicNetworkPartition takes some paramenters and creates a new Network Partition
-func CreatePublicNetworkPartition(name string, params NetworkPartitionParameters, provider *aws.Provider, vpc *ec2.Vpc, rt *ec2.RouteTable) *pgocomp.Component[*NetworkPartitionComponent] {
-	return CreateNetworkPartition(name, params, provider, vpc, rt)
-}
-
-// CreatePrivateNetworkPartition takes some paramenters and creates a new Network Partition
-func CreatePrivateNetworkPartition(name string, params NetworkPartitionParameters, provider *aws.Provider, vpc *ec2.Vpc) *pgocomp.Component[*NetworkPartitionComponent] {
-	return CreateNetworkPartition(name, params, provider, vpc, nil)
-}
-
 // CreateNetworkPartition takes some paramenters and creates a new Network Partition
-func CreateNetworkPartition(name string, params NetworkPartitionParameters, provider *aws.Provider, vpc *ec2.Vpc, defaultRoute *ec2.RouteTable) *pgocomp.Component[*NetworkPartitionComponent] {
-	return pgocomp.NewComponent(name, func(ctx *pulumi.Context) (*NetworkPartitionComponent, error) {
-		var response NetworkPartitionComponent
-		var subnets []*ec2.Subnet
-		var err = errors.Join(
-			CreateSubnetAndAssociateToRoute(name+"-subneta", params.SubnetA, provider, vpc, defaultRoute).GetAndThen(ctx, func(subnet *pgocomp.GetComponentResponse[*ec2.Subnet]) error {
-				if params.SubnetA.Active {
-					response.SubnetA = subnet
-					subnets = append(subnets, subnet.Component)
+func CreateNetworkPartition(meta pgocomp.Meta, params NetworkPartitionParameters, provider *aws.Provider, vpc *ec2.Vpc, rt *ec2.RouteTable, certs map[string]*acm.Certificate) *pgocomp.ComponentWithMeta[*NetworkPartitionComponent] {
+	return pgocomp.NewComponentWithMeta(meta, func(ctx *pulumi.Context, name string) (response *NetworkPartitionComponent, err error) {
+		response = &NetworkPartitionComponent{
+			Subnets:       make(map[string]*pgocomp.GetComponentWithMetaResponse[*ec2.Subnet]),
+			LoadBalancers: make(map[string]*pgocomp.GetComponentWithMetaResponse[*LoadBalancerComponent]),
+			TargetGroups:  make(map[string]*pgocomp.GetComponentWithMetaResponse[*lb.TargetGroup]),
+			ECSClusters:   make(map[string]*pgocomp.GetComponentWithMetaResponse[*ECSClusterComponent]),
+		}
+		azs, err := aws.GetAvailabilityZones(ctx, &aws.GetAvailabilityZonesArgs{
+			State: pulumi.StringRef("available"),
+		}, pulumi.Provider(provider))
+		if err != nil {
+			return nil, err
+		}
+		err = errors.Join(
+			//CreateSubnets
+			func() (err error) {
+				for i, subnet := range params.Subnets {
+					var srt = rt
+					if !params.IsPublic {
+						srt = nil
+					}
+					err = CreateSubnetAndAssociateToRoute(subnet.Meta, subnet, azs.Names[i%len(azs.Names)], provider, vpc, srt).GetAndThen(ctx, func(subnet *pgocomp.GetComponentWithMetaResponse[*ec2.Subnet]) error {
+						response.Subnets[subnet.Meta.Name] = subnet
+						return nil
+					})
+					if err != nil {
+						return
+					}
 				}
-				return nil
-			}),
-			CreateSubnetAndAssociateToRoute(name+"-subnetb", params.SubnetB, provider, vpc, defaultRoute).GetAndThen(ctx, func(subnet *pgocomp.GetComponentResponse[*ec2.Subnet]) error {
-				if params.SubnetB.Active {
-					response.SubnetB = subnet
-					subnets = append(subnets, subnet.Component)
+				return
+			}(),
+
+			//CreateTargetGroups
+			func() (err error) {
+				for _, tg := range params.LBTargetGroups {
+					err = CreateTargetGroup(tg.Meta, tg, provider, vpc).GetAndThen(ctx, func(tgc *pgocomp.GetComponentWithMetaResponse[*lb.TargetGroup]) error {
+						response.TargetGroups[tg.Meta.Name] = tgc
+						return nil
+					})
+					if err != nil {
+						return
+					}
 				}
-				return nil
-			}),
-			CreateLoadBalancerComponent(name+"-lb", params.LoadBalancer, provider, vpc, subnets).GetAndThen(ctx, func(lb *pgocomp.GetComponentResponse[*LoadBalancerComponent]) error {
-				if params.LoadBalancer.Active {
-					response.LoadBalancer = lb
+				return
+			}(),
+
+			//CreateLoadBalancers
+			func() (err error) {
+				var subnets []*ec2.Subnet
+				for _, s := range response.Subnets {
+					subnets = append(subnets, s.Component)
 				}
-				return CreateECSClusterComponents(name+"-cluster", params.ECSClusters, provider, subnets, lb.Component).GetAndThen(ctx, func(clusters *pgocomp.GetComponentResponse[[]*ECSClusterComponent]) error {
-					response.ECSClusters = clusters
-					return nil
-				})
-			}),
+				for _, loadBalancer := range params.LoadBalancers {
+					err = CreateLoadBalancerComponent(loadBalancer.Meta, loadBalancer, provider, vpc, subnets, response.TargetGroups, certs).GetAndThen(ctx, func(lbc *pgocomp.GetComponentWithMetaResponse[*LoadBalancerComponent]) error {
+						response.LoadBalancers[loadBalancer.Meta.Name] = lbc
+						return nil
+					})
+					if err != nil {
+						return
+					}
+				}
+				return
+			}(),
+
+			//CreateClusters
+			func() (err error) {
+
+				//Collect subnets
+				var subnets []*ec2.Subnet
+				for _, s := range response.Subnets {
+					subnets = append(subnets, s.Component)
+				}
+
+				//Collect target groups
+				var tgs = make(map[string]*lb.TargetGroup)
+				for k, v := range response.TargetGroups {
+					tgs[k] = v.Component
+				}
+
+				//Collect security groups
+				var sgs []*ec2.SecurityGroup
+				for _, b := range response.LoadBalancers {
+					sgs = append(sgs, b.Component.SecurityGroup.Component)
+				}
+
+				for _, cluster := range params.ECSClusters {
+					err = CreateECSClusterComponent(cluster.Meta, cluster, provider, vpc, subnets, tgs, sgs).GetAndThen(ctx, func(cls *pgocomp.GetComponentWithMetaResponse[*ECSClusterComponent]) error {
+						response.ECSClusters[cls.Meta.Name] = cls
+						return nil
+					})
+					if err != nil {
+						return
+					}
+				}
+				return
+			}(),
 		)
-		return &response, err
+		return
 	})
 }
 
 // CreateLoadBalancerComponent takes some paramenters and creates a new Network Partition
-func CreateLoadBalancerComponent(name string, params LoadBalancerParameters, provider *aws.Provider, vpc *ec2.Vpc, subnets []*ec2.Subnet) *pgocomp.Component[*LoadBalancerComponent] {
-	if !params.Active {
-		return pgocomp.NewInactiveComponent[*LoadBalancerComponent](name)
-	}
-	return pgocomp.NewComponent(name, func(ctx *pulumi.Context) (*LoadBalancerComponent, error) {
-		var response LoadBalancerComponent
+func CreateLoadBalancerComponent(meta pgocomp.Meta, params LoadBalancerParameters, provider *aws.Provider, vpc *ec2.Vpc, subnets []*ec2.Subnet, tgs map[string]*pgocomp.GetComponentWithMetaResponse[*lb.TargetGroup], certs map[string]*acm.Certificate) *pgocomp.ComponentWithMeta[*LoadBalancerComponent] {
+	return pgocomp.NewComponentWithMeta(meta, func(ctx *pulumi.Context, name string) (*LoadBalancerComponent, error) {
+		var response LoadBalancerComponent = LoadBalancerComponent{
+			Listeners: make(map[string]*pgocomp.GetComponentWithMetaResponse[*lb.Listener]),
+		}
 		var err = errors.Join(
-			CreateSecurityGroup(name+"-sg", provider, vpc).GetAndThen(ctx, func(sg *pgocomp.GetComponentResponse[*ec2.SecurityGroup]) error {
+			CreateSecurityGroup(pgocomp.Meta{
+				Name: meta.Name + "-sg",
+			}, provider, vpc).GetAndThen(ctx, func(sg *pgocomp.GetComponentWithMetaResponse[*ec2.SecurityGroup]) error {
 				response.SecurityGroup = sg
 				return errors.Join(
-					CreateLoadBalancerAndAssociateToSubnets(name, params.Type, provider, subnets, sg.Component).GetAndThen(ctx, func(loadBalancer *pgocomp.GetComponentResponse[*lb.LoadBalancer]) error {
+					CreateLoadBalancerAndAssociateToSubnets(meta, params.Type, provider, subnets, sg.Component).GetAndThen(ctx, func(loadBalancer *pgocomp.GetComponentWithMetaResponse[*lb.LoadBalancer]) error {
 						response.LoadBalancer = loadBalancer
-						ctx.Export(loadBalancer.Name+"-dns", loadBalancer.Component.DnsName)
-						return CreateTargetGroups(name+"-tgt", params.TargetGroups, provider, vpc, loadBalancer.Component).GetAndThen(ctx, func(tgs *pgocomp.GetComponentResponse[map[string]*lb.TargetGroup]) error {
-							response.targetGroups = tgs
-							return CreateListeners(name+"-lis", params.Listeners, provider, loadBalancer.Component, tgs.Component, sg.Component).GetAndThen(ctx, func(ls *pgocomp.GetComponentResponse[[]*lb.Listener]) error {
-								response.listeners = ls
-								return nil
-							})
-						})
+						ctx.Export(loadBalancer.Meta.FullName()+"-dns", loadBalancer.Component.DnsName)
+						for _, lis := range params.Listeners {
+							tg, ok := tgs[lis.TargetGroupLookupName]
+							if !ok {
+								return fmt.Errorf("Target group Lookup Name %s not found", lis.TargetGroupLookupName)
+							}
+							if err := CreateListener(
+								lis.Meta, lis, provider, loadBalancer.Component, tg.Component, sg.Component, certs).GetAndThen(ctx, func(l *pgocomp.GetComponentWithMetaResponse[*lb.Listener]) error {
+								response.Listeners[l.Meta.Name] = l
+								return CreateAndAttachTCPIngressSecurityGroupRule(
+									pgocomp.Meta{Name: lis.Meta.Name + "-rule"},
+									provider, sg.Component, lis.Port, lis.Port, []string{"0.0.0.0/0"}).Apply(ctx)
+							}); err != nil {
+								return err
+							}
+						}
+						return nil
 					}),
 				)
 			}),
@@ -147,66 +258,37 @@ func CreateLoadBalancerComponent(name string, params LoadBalancerParameters, pro
 	})
 }
 
-// CreateECSClusterComponents takes some paramenters and creates a new Network Partition
-func CreateECSClusterComponents(name string, params []ECSClusterParameters, provider *aws.Provider, subnets []*ec2.Subnet, lbcomp *LoadBalancerComponent) *pgocomp.Component[[]*ECSClusterComponent] {
-	return pgocomp.NewComponent(name, func(ctx *pulumi.Context) ([]*ECSClusterComponent, error) {
-		var clusters []*ECSClusterComponent
-
-		for _, clusterParams := range params {
-			if !clusterParams.Active {
-				continue
-			}
-			if err := CreateECSClusterComponent(name, clusterParams, provider, subnets, lbcomp).GetAndThen(ctx, func(cluster *pgocomp.GetComponentResponse[*ECSClusterComponent]) error {
-				clusters = append(clusters, cluster.Component)
-				return nil
-			}); err != nil {
-				return clusters, err
-			}
-		}
-		return clusters, nil
-	})
-}
-
 // CreateECSClusterComponent takes some paramenters and creates a new Network Partition
-func CreateECSClusterComponent(name string, params ECSClusterParameters, provider *aws.Provider, subnets []*ec2.Subnet, lbcomp *LoadBalancerComponent) *pgocomp.Component[*ECSClusterComponent] {
-	if !params.Active {
-		return pgocomp.NewInactiveComponent[*ECSClusterComponent](name)
-	}
-
-	return pgocomp.NewComponent(name, func(ctx *pulumi.Context) (*ECSClusterComponent, error) {
-		var cc ECSClusterComponent
-		var err = errors.Join(
-			CreateECSCluster(name+"-"+params.Name, params, provider).GetAndThen(ctx, func(cluster *pgocomp.GetComponentResponse[*ecs.Cluster]) error {
-				if !params.Active {
-					return nil
+func CreateECSClusterComponent(meta pgocomp.Meta, params ECSClusterParameters, provider *aws.Provider, vpc *ec2.Vpc, subnets []*ec2.Subnet, tgs map[string]*lb.TargetGroup, sgs []*ec2.SecurityGroup) *pgocomp.ComponentWithMeta[*ECSClusterComponent] {
+	return pgocomp.NewComponentWithMeta(meta, func(ctx *pulumi.Context, name string) (response *ECSClusterComponent, err error) {
+		response = &ECSClusterComponent{
+			FargateServices: make(map[string]*pgocomp.GetComponentWithMetaResponse[*ecs.Service]),
+		}
+		err = errors.Join(
+			CreateECSCluster(
+				meta, params, provider).GetAndThen(ctx, func(cluster *pgocomp.GetComponentWithMetaResponse[*ecs.Cluster]) error {
+				response.Cluster = cluster
+				for _, svcParams := range params.Services {
+					err := CreateEcsFargateServiceComponent(
+						svcParams.Meta,
+						svcParams,
+						provider,
+						vpc,
+						cluster.Component,
+						subnets,
+						tgs,
+					).GetAndThen(ctx, func(svc *pgocomp.GetComponentWithMetaResponse[*ecs.Service]) error {
+						response.FargateServices[svc.Meta.Name] = svc
+						return nil
+					})
+					if err != nil {
+						return err
+					}
 				}
-				cc.Cluster = cluster
-				return CreateEcsNativeFargateServiceComponents(cluster.Name+"-service", params.Services, provider, cluster.Component, subnets, lbcomp).GetAndThen(ctx, func(svcs *pgocomp.GetComponentResponse[[]*ecsn.Service]) error {
-					cc.FargateServices = svcs
-					return nil
-				})
+				return nil
 			}),
 		)
-		return &cc, err
-	})
-}
-
-// CreateEcsxFargateServiceComponents takes some paramenters and creates a new Network Partition
-func CreateEcsxFargateServiceComponents(name string, params []ECSServiceParameters, provider *aws.Provider, cluster *ecs.Cluster, subnets []*ec2.Subnet, lbcomp *LoadBalancerComponent) *pgocomp.Component[[]*ecsx.FargateService] {
-	return pgocomp.NewComponent(name, func(ctx *pulumi.Context) ([]*ecsx.FargateService, error) {
-		var response []*ecsx.FargateService
-		for i, svcParams := range params {
-			if !svcParams.Active {
-				continue
-			}
-			if err := CreateEcsxFargateServiceComponent(name+"-"+strconv.Itoa(i), svcParams, provider, cluster, subnets, lbcomp).GetAndThen(ctx, func(svc *pgocomp.GetComponentResponse[*ecsx.FargateService]) error {
-				response = append(response, svc.Component)
-				return nil
-			}); err != nil {
-				return nil, err
-			}
-		}
-		return response, nil
+		return
 	})
 }
 
@@ -218,70 +300,93 @@ func matchOrPanic(pattern string, str string) bool {
 	return b
 }
 
-// CreateEcsNativeFargateServiceComponents creates a list of fargate services
-func CreateEcsNativeFargateServiceComponents(name string, svcParams []ECSServiceParameters, provider *aws.Provider, cluster *ecs.Cluster, subnets []*ec2.Subnet, lbcomp *LoadBalancerComponent) *pgocomp.Component[[]*ecsn.Service] {
-	return pgocomp.NewComponent(name, func(ctx *pulumi.Context) ([]*ecsn.Service, error) {
-		var response []*ecsn.Service
+// CreateCertificate creates a new certificate with a CertificateParameters
+func CreateCertificate(meta pgocomp.Meta, params CertificateParameters, provider *aws.Provider) *pgocomp.ComponentWithMeta[*acm.Certificate] {
+	return awsc.NewCertificate(meta, &acm.CertificateArgs{
+		DomainName:       pulumi.String(params.Domain),
+		ValidationMethod: pulumi.String(params.ValidationMethod),
+	}, pulumi.Provider(provider), pulumi.Protect(meta.Protect))
+}
 
-		for _, params := range svcParams {
-			if !params.Active {
-				continue
+// CreateEcsFargateServiceComponent is
+func CreateEcsFargateServiceComponent(
+	meta pgocomp.Meta,
+	params ECSServiceParameters,
+	provider *aws.Provider,
+	vpc *ec2.Vpc,
+	cluster *ecs.Cluster,
+	subnets []*ec2.Subnet,
+	targetGroups map[string]*lb.TargetGroup,
+) *pgocomp.ComponentWithMeta[*ecs.Service] {
+	return pgocomp.NewComponentWithMeta(meta, func(ctx *pulumi.Context, name string) (response *ecs.Service, err error) {
+
+		//Security group for the Service
+		err = CreateSecurityGroup(pgocomp.Meta{Name: meta.Name + "-sg"}, provider, vpc).GetAndThen(ctx, func(sg *pgocomp.GetComponentWithMetaResponse[*ec2.SecurityGroup]) (err error) {
+			var containerDefinitions string
+			containerDefinitions, err = params.ECSTaskDefinitionContainerDefinitionArray()
+			if err != nil {
+				return
 			}
-			err := awsc.NewEcsNativeTaskDefinition(name+"-task-"+params.Name, &ecsn.TaskDefinitionArgs{
-				NetworkMode: pulumi.String("awsvpc"),
-				RequiresCompatibilities: pulumi.StringArray{
-					pulumi.String("FARGATE"),
+			err = awsc.NewEcsTaskDefinition(
+				pgocomp.Meta{
+					Name: meta.Name + "-task",
 				},
-				Cpu:                  pulumi.String(strconv.Itoa(params.CPU)),
-				Memory:               pulumi.String(strconv.Itoa(params.Memory)),
-				ContainerDefinitions: params.TaskDefinitionContainerDefinitionArray(),
-			}, func() []pulumi.ResourceOption {
-				dependsOn := []pulumi.Resource{cluster}
-				for _, subnet := range subnets {
-					dependsOn = append(dependsOn, subnet)
-				}
-				for _, c := range params.Containers {
-					for _, p := range c.PortMappings {
-						if tg, ok := lbcomp.targetGroups.Component[p.TargetGroupLookupName]; ok {
-							dependsOn = append(dependsOn, tg, lbcomp.LoadBalancer.Component)
+				&ecs.TaskDefinitionArgs{
+					NetworkMode: pulumi.String("awsvpc"),
+					RequiresCompatibilities: pulumi.StringArray{
+						pulumi.String("FARGATE"),
+					},
+					Family:               pulumi.String("PULUMI-AUTO"),
+					Cpu:                  pulumi.String(strconv.Itoa(params.CPU)),
+					Memory:               pulumi.String(strconv.Itoa(params.Memory)),
+					ContainerDefinitions: pulumi.String(containerDefinitions),
+				}, func() []pulumi.ResourceOption {
+					dependsOn := []pulumi.Resource{cluster}
+					for _, subnet := range subnets {
+						dependsOn = append(dependsOn, subnet)
+					}
+					for _, c := range params.Containers {
+						for _, p := range c.PortMappings {
+							if tg, ok := targetGroups[p.TargetGroupLookupName]; !ok {
+								dependsOn = append(dependsOn, tg)
+
+							}
 						}
 					}
-				}
-				return []pulumi.ResourceOption{
-					pulumi.Provider(provider),
-					pulumi.DependsOn(dependsOn),
-					pulumi.ReplaceOnChanges([]string{"*"}),
-				}
-			}()...).GetAndThen(ctx, func(taskDef *pgocomp.GetComponentResponse[*ecsn.TaskDefinition]) error {
-				return awsc.NewECSNativeService(name+"-"+params.Name, &ecsn.ServiceArgs{
-					ServiceName:    pulumi.String(params.Name),
+					return []pulumi.ResourceOption{
+						pulumi.Provider(provider), pulumi.Protect(meta.Protect),
+						pulumi.DependsOn(dependsOn),
+						//					pulumi.ReplaceOnChanges([]string{"*"}),
+					}
+				}()...).GetAndThen(ctx, func(taskDef *pgocomp.GetComponentWithMetaResponse[*ecs.TaskDefinition]) error {
+				return awsc.NewECSService(params.Meta, &ecs.ServiceArgs{
+					Name:           pulumi.String(params.Name),
 					Cluster:        cluster.ID(),
 					DesiredCount:   pulumi.Int(params.DesiredCount),
-					LaunchType:     ecsn.ServiceLaunchTypeFargate,
+					LaunchType:     pulumi.String("FARGATE"),
 					TaskDefinition: taskDef.Component.ID(),
-					NetworkConfiguration: ecsn.ServiceNetworkConfigurationArgs{
-						AwsvpcConfiguration: ecsn.ServiceAwsVpcConfigurationArgs{
-							AssignPublicIp: func() ecsn.ServiceAwsVpcConfigurationAssignPublicIp {
-								if params.AssignPublicIP {
-									return ecsn.ServiceAwsVpcConfigurationAssignPublicIpEnabled
-								}
-								return ecsn.ServiceAwsVpcConfigurationAssignPublicIpDisabled
-							}(),
-							Subnets: func() pulumi.StringArray {
-								var array pulumi.StringArray
-								for _, subnet := range subnets {
-									array = append(array, subnet.ID())
-								}
-								return array
-							}(),
-							SecurityGroups: awsc.ToIDStringArray(&lbcomp.SecurityGroup.Component.CustomResourceState),
-						},
+					NetworkConfiguration: ecs.ServiceNetworkConfigurationArgs{
+						AssignPublicIp: pulumi.Bool(params.AssignPublicIP),
+						Subnets: func() (array pulumi.StringArray) {
+							for _, subnet := range subnets {
+								array = append(array, subnet.ID())
+							}
+							return
+						}(),
+						SecurityGroups: pulumi.StringArray{sg.Component.ID()},
 					},
-					LoadBalancers: func() (array ecsn.ServiceLoadBalancerArray) {
+					LoadBalancers: func() (array ecs.ServiceLoadBalancerArray) {
 						for _, c := range params.Containers {
 							for _, p := range c.PortMappings {
-								if tg, ok := lbcomp.targetGroups.Component[p.TargetGroupLookupName]; ok {
-									array = append(array, ecsn.ServiceLoadBalancerArgs{
+								if tg, ok := targetGroups[p.TargetGroupLookupName]; ok {
+									CreateSecurityGroupRuleForTargetGroup(
+										pgocomp.Meta{Name: meta.Name + "-sg-" + p.TargetGroupLookupName + "-rule"},
+										provider,
+										sg.Component,
+										tg,
+										[]string{"0.0.0.0/0"},
+									)
+									array = append(array, ecs.ServiceLoadBalancerArgs{
 										ContainerName:  pulumi.String(c.Name),
 										ContainerPort:  pulumi.Int(p.ContainerPort),
 										TargetGroupArn: tg.ID(),
@@ -292,181 +397,72 @@ func CreateEcsNativeFargateServiceComponents(name string, svcParams []ECSService
 						return
 					}(),
 				},
-					pulumi.ReplaceOnChanges([]string{"*"}),
-					pulumi.DeletedWith(cluster),
-					pulumi.Provider(provider),
-					pulumi.DependsOn([]pulumi.Resource{cluster, taskDef.Component})).GetAndThen(ctx, func(svc *pgocomp.GetComponentResponse[*ecsn.Service]) error {
-					response = append(response, svc.Component)
+					pulumi.Provider(provider), pulumi.Protect(meta.Protect),
+					//				pulumi.ReplaceOnChanges([]string{"*"}),
+					pulumi.DependsOn([]pulumi.Resource{cluster, taskDef.Component})).GetAndThen(ctx, func(svc *pgocomp.GetComponentWithMetaResponse[*ecs.Service]) error {
+					response = svc.Component
 					return nil
 				})
 			})
-			if err != nil {
-				return nil, err
-			}
-		}
-		return response, nil
-	})
-}
-
-// CreateEcsxFargateServiceComponent creates bla bla bla
-func CreateEcsxFargateServiceComponent(name string, params ECSServiceParameters, provider *aws.Provider, cluster *ecs.Cluster, subnets []*ec2.Subnet, lbcomp *LoadBalancerComponent) *pgocomp.Component[*ecsx.FargateService] {
-	if !params.Active {
-		return pgocomp.NewInactiveComponent[*ecsx.FargateService](name)
-	}
-	return pgocomp.NewComponent(name, func(ctx *pulumi.Context) (*ecsx.FargateService, error) {
-		var response *ecsx.FargateService
-		dependsOn := []pulumi.Resource{cluster}
-		var subnetStates []*pulumi.CustomResourceState
-		for _, subnet := range subnets {
-			dependsOn = append(dependsOn, subnet)
-			subnetStates = append(subnetStates, &subnet.CustomResourceState)
-		}
-		var err = awsc.NewFargateService(name, &ecsx.FargateServiceArgs{
-			Cluster:      cluster.ID(),
-			DesiredCount: pulumi.Int(params.DesiredCount),
-			NetworkConfiguration: ecs.ServiceNetworkConfigurationArgs{
-				AssignPublicIp: pulumi.Bool(params.AssignPublicIP),
-				Subnets:        awsc.ToIDStringArray(subnetStates...),
-			},
-			TaskDefinitionArgs: &ecsx.FargateServiceTaskDefinitionArgs{
-				Containers: func() map[string]ecsx.TaskDefinitionContainerDefinitionArgs {
-					var containerDefinitions = make(map[string]ecsx.TaskDefinitionContainerDefinitionArgs)
-					for _, containerParam := range params.Containers {
-						containerDefinitions[containerParam.Name] = ecsx.TaskDefinitionContainerDefinitionArgs{
-							Cpu:    pulumi.Int(containerParam.CPU),
-							Memory: pulumi.Int(containerParam.Memory),
-							Environment: func() ecsx.TaskDefinitionKeyValuePairArray {
-								var environment = make(ecsx.TaskDefinitionKeyValuePairArray, 0, len(containerParam.Environment))
-								for name, value := range containerParam.Environment {
-									environment = append(environment, ecsx.TaskDefinitionKeyValuePairArgs{
-										Name:  pulumi.String(name),
-										Value: pulumi.String(value)},
-									)
-								}
-								return environment
-							}(),
-							Image: pulumi.String(containerParam.Image),
-							PortMappings: func() ecsx.TaskDefinitionPortMappingArray {
-								var array = make(ecsx.TaskDefinitionPortMappingArray, 0, len(containerParam.PortMappings))
-								for _, mapping := range containerParam.PortMappings {
-									array = append(array, ecsx.TaskDefinitionPortMappingArgs{
-										ContainerPort: pulumi.Int(mapping.ContainerPort),
-										TargetGroup:   lbcomp.targetGroups.Component[mapping.TargetGroupLookupName],
-									})
-									dependsOn = append(dependsOn, lbcomp.targetGroups.Component[mapping.TargetGroupLookupName])
-								}
-								return array
-							}(),
-						}
-					}
-					return containerDefinitions
-				}(),
-			},
-		}, pulumi.Provider(provider), pulumi.DependsOn(dependsOn)).GetAndThen(ctx, func(service *pgocomp.GetComponentResponse[*ecsx.FargateService]) error {
-			response = service.Component
-			return nil
+			return
 		})
-		return response, err
+		return
 	})
 }
 
 // CreateECSCluster creates a new ECSCluster
-func CreateECSCluster(name string, params ECSClusterParameters, provider *aws.Provider) *pgocomp.Component[*ecs.Cluster] {
-	if !params.Active {
-		return pgocomp.NewInactiveComponent[*ecs.Cluster](name)
-	}
-	return awsc.NewCluster(name, &ecs.ClusterArgs{}, pulumi.Provider(provider))
+func CreateECSCluster(meta pgocomp.Meta, params ECSClusterParameters, provider *aws.Provider) *pgocomp.ComponentWithMeta[*ecs.Cluster] {
+	return awsc.NewCluster(meta, &ecs.ClusterArgs{}, pulumi.Provider(provider), pulumi.Protect(meta.Protect))
 }
 
 // CreateProvider takes a name and a region and returns an aws.Provider Component
-func CreateProvider(name string, region string) *pgocomp.Component[*aws.Provider] {
-	return awsc.NewProvider(name, &aws.ProviderArgs{Region: pulumi.String(region)})
+func CreateProvider(meta pgocomp.Meta, region string) *pgocomp.ComponentWithMeta[*aws.Provider] {
+	return awsc.NewProvider(meta, &aws.ProviderArgs{Region: pulumi.String(region)})
 }
 
-// CreateVPC takes a name, a list of parameters and a provides and returns a Vpc Component
-func CreateVPC(name string, params RegionParameters, provider *aws.Provider) *pgocomp.Component[*ec2.Vpc] {
+// CreateVPC takes a meta, a list of parameters and a provides and returns a Vpc Component
+func CreateVPC(meta pgocomp.Meta, params VpcParameters, provider *aws.Provider) *pgocomp.ComponentWithMeta[*ec2.Vpc] {
 	return awsc.NewVpc(
-		name,
+		meta,
 		&ec2.VpcArgs{
 			CidrBlock:        pulumi.String(params.CidrBlock),
 			EnableDnsSupport: pulumi.Bool(true),
 		},
-		pulumi.Provider(provider).(pulumi.ResourceOption),
+		pulumi.Provider(provider), pulumi.Protect(meta.Protect).(pulumi.ResourceOption),
 	)
 }
 
-// CreateListeners creates a new Listener Component
-func CreateListeners(name string, params []LBListenerParameters, provider *aws.Provider, loadBalancer *lb.LoadBalancer, tgs map[string]*lb.TargetGroup, sg *ec2.SecurityGroup) *pgocomp.Component[[]*lb.Listener] {
-	return pgocomp.NewComponent(name, func(ctx *pulumi.Context) ([]*lb.Listener, error) {
-		var response []*lb.Listener
-		for i, ps := range params {
-			if err := CreateListener(name+"-"+strconv.Itoa(i), ps, provider, loadBalancer, tgs, sg).GetAndThen(ctx, func(l *pgocomp.GetComponentResponse[*lb.Listener]) error {
-				if l == nil {
-					return nil
-				}
-				response = append(response, l.Component)
-				//Create a Security Group rule that opens the port
-				return CreateAndAttachTCPIngressSecurityGroupRule(l.Name+"-sg-rule", provider, sg, ps.Port, ps.Port, []string{"0.0.0.0/0"}).Apply(ctx)
-			}); err != nil {
-				return response, err
-			}
-		}
-		return response, nil
-	})
-}
-
 // CreateListener creates a new Listener Component
-func CreateListener(name string, params LBListenerParameters, provider *aws.Provider, loadBalancer *lb.LoadBalancer, tgs map[string]*lb.TargetGroup, sg *ec2.SecurityGroup) *pgocomp.Component[*lb.Listener] {
-	if !params.Active {
-		return pgocomp.NewInactiveComponent[*lb.Listener](name)
-	}
-	return awsc.NewListener(name, &lb.ListenerArgs{
+func CreateListener(meta pgocomp.Meta, params LBListenerParameters, provider *aws.Provider, loadBalancer *lb.LoadBalancer, tg *lb.TargetGroup, sg *ec2.SecurityGroup, certs map[string]*acm.Certificate) *pgocomp.ComponentWithMeta[*lb.Listener] {
+	args := &lb.ListenerArgs{
 		Port:            pulumi.Int(params.Port),
 		LoadBalancerArn: loadBalancer.ID(),
-		Protocol:        pulumi.String("HTTP"), //TODO: Listener protocol should match targetGroup. now it only works for HTTP
+		Protocol:        pulumi.String(params.Protocol),
 		DefaultActions: lb.ListenerDefaultActionArray{
 			lb.ListenerDefaultActionArgs{
-				TargetGroupArn: tgs[params.TargetGroupLookupName].ID(),
+				TargetGroupArn: tg.ID(),
 				Type:           pulumi.String("forward"),
 			},
 		},
-	}, pulumi.Provider(provider))
-}
-
-// CreateTargetGroups creates a new LoadBalancer Component
-func CreateTargetGroups(name string, params []LBTargetGroupParameters, provider *aws.Provider, vpc *ec2.Vpc, loadBalancer *lb.LoadBalancer) *pgocomp.Component[map[string]*lb.TargetGroup] {
-	return pgocomp.NewComponent(name, func(ctx *pulumi.Context) (map[string]*lb.TargetGroup, error) {
-		var response = make(map[string]*lb.TargetGroup)
-		for i, ps := range params {
-			if err := CreateTargetGroup(name+"-"+strconv.Itoa(i), ps, provider, vpc, loadBalancer).GetAndThen(ctx, func(tg *pgocomp.GetComponentResponse[*lb.TargetGroup]) error {
-				if tg == nil {
-					return nil
-				}
-				response[ps.LookupName] = tg.Component
-				return nil
-			}); err != nil {
-				return response, err
-			}
-		}
-		return response, nil
-	})
+	}
+	if cert, ok := certs[params.CertificateLookupName]; ok {
+		args.CertificateArn = cert.ID()
+	}
+	return awsc.NewListener(meta, args, pulumi.Provider(provider), pulumi.Protect(meta.Protect))
 }
 
 // CreateTargetGroup creates a new LoadBalancer Component
-func CreateTargetGroup(name string, params LBTargetGroupParameters, provider *aws.Provider, vpc *ec2.Vpc, loadBalancer *lb.LoadBalancer) *pgocomp.Component[*lb.TargetGroup] {
-	if !params.Active {
-		return pgocomp.NewInactiveComponent[*lb.TargetGroup](name)
-	}
-	return awsc.NewTargetGroup(name, &lb.TargetGroupArgs{
+func CreateTargetGroup(meta pgocomp.Meta, params LBTargetGroupParameters, provider *aws.Provider, vpc *ec2.Vpc) *pgocomp.ComponentWithMeta[*lb.TargetGroup] {
+	return awsc.NewTargetGroup(meta, &lb.TargetGroupArgs{
 		Port:       pulumi.Int(params.Port),
 		VpcId:      vpc.ID(),
-		Protocol:   pulumi.String("HTTP"),
+		Protocol:   pulumi.String(params.Protocol),
 		TargetType: pulumi.String("ip"),
-	}, pulumi.Provider(provider))
+	}, pulumi.Provider(provider), pulumi.Protect(meta.Protect))
 }
 
 // CreateLoadBalancerAndAssociateToSubnets creates a new LoadBalancer Component
-func CreateLoadBalancerAndAssociateToSubnets(name string, lbType LBType, provider *aws.Provider, subnets []*ec2.Subnet, sg *ec2.SecurityGroup) *pgocomp.Component[*lb.LoadBalancer] {
+func CreateLoadBalancerAndAssociateToSubnets(meta pgocomp.Meta, lbType LBType, provider *aws.Provider, subnets []*ec2.Subnet, sg *ec2.SecurityGroup) *pgocomp.ComponentWithMeta[*lb.LoadBalancer] {
 	var dependsOn []pulumi.Resource
 	for _, subnet := range subnets {
 		subnet.ID()
@@ -476,17 +472,17 @@ func CreateLoadBalancerAndAssociateToSubnets(name string, lbType LBType, provide
 	for _, subnet := range subnets {
 		customResources = append(customResources, &subnet.CustomResourceState)
 	}
-	return awsc.NewLoadBalancer(name, &lb.LoadBalancerArgs{
+	return awsc.NewLoadBalancer(meta, &lb.LoadBalancerArgs{
 		LoadBalancerType: pulumi.String(lbType),
 		SecurityGroups:   awsc.ToIDStringArray(&sg.CustomResourceState),
 		Subnets:          awsc.ToIDStringArray(customResources...),
-	}, pulumi.Provider(provider), pulumi.DependsOn(dependsOn))
+	}, pulumi.Provider(provider), pulumi.Protect(meta.Protect), pulumi.DependsOn(dependsOn))
 }
 
 // CreateSecurityGroup takes a name and a vpc and returns a SecurityGroup Component
-func CreateSecurityGroup(name string, provider *aws.Provider, vpc *ec2.Vpc) *pgocomp.Component[*ec2.SecurityGroup] {
+func CreateSecurityGroup(meta pgocomp.Meta, provider *aws.Provider, vpc *ec2.Vpc) *pgocomp.ComponentWithMeta[*ec2.SecurityGroup] {
 	return awsc.NewSecurityGroup(
-		name,
+		meta,
 		&ec2.SecurityGroupArgs{
 			VpcId: vpc.ID(),
 			Egress: ec2.SecurityGroupEgressArray{
@@ -503,114 +499,120 @@ func CreateSecurityGroup(name string, provider *aws.Provider, vpc *ec2.Vpc) *pgo
 				},
 			},
 		},
-		pulumi.Provider(provider),
+		pulumi.Provider(provider), pulumi.Protect(meta.Protect),
 		pulumi.DependsOn([]pulumi.Resource{vpc}),
 	)
 }
 
-// CreateAndAttachTCPIngressSecurityGroupRule takes a name, a security group, some nework parameters and returns a SecurityGroupRule Component
-func CreateAndAttachTCPIngressSecurityGroupRule(name string, provider *aws.Provider, sg *ec2.SecurityGroup, fromPort, toPort int, cidrBlocks []string) *pgocomp.Component[*ec2.SecurityGroupRule] {
+// CreateAndAttachTCPIngressSecurityGroupRule takes a meta, a security group, some nework parameters and returns a SecurityGroupRule Component
+func CreateAndAttachTCPIngressSecurityGroupRule(meta pgocomp.Meta, provider *aws.Provider, sg *ec2.SecurityGroup, fromPort, toPort int, cidrBlocks []string) *pgocomp.ComponentWithMeta[*ec2.SecurityGroupRule] {
 	return awsc.NewSecurityGroupRule(
-		name, &ec2.SecurityGroupRuleArgs{
+		meta, &ec2.SecurityGroupRuleArgs{
 			Type:            pulumi.String("ingress"),
 			Protocol:        pulumi.String(("tcp")),
 			SecurityGroupId: sg.ID(),
 			CidrBlocks:      pulumi.ToStringArray(cidrBlocks),
 			FromPort:        pulumi.Int(fromPort),
 			ToPort:          pulumi.Int(toPort),
-		}, pulumi.Provider(provider), pulumi.DependsOn([]pulumi.Resource{sg}))
+		}, pulumi.Provider(provider), pulumi.Protect(meta.Protect), pulumi.DependsOn([]pulumi.Resource{sg}))
 }
 
-// CreateSubnetAndAssociateToRoute takes a name, some parameters and a vpc and returns a SubnetComponent
-func CreateSubnetAndAssociateToRoute(name string, params SubnetParameters, provider *aws.Provider, vpc *ec2.Vpc, rt *ec2.RouteTable) *pgocomp.Component[*ec2.Subnet] {
-	return pgocomp.NewComponent(name, func(ctx *pulumi.Context) (*ec2.Subnet, error) {
-		var subnet *ec2.Subnet
-		err := CreateSubnet(name, params, provider, vpc, rt).GetAndThen(ctx, func(s *pgocomp.GetComponentResponse[*ec2.Subnet]) error {
-			if rt == nil {
-				return nil
-			}
-			subnet = s.Component
-			return AssociateRouteTableToSubnet(name+"-route", provider, subnet, rt).Apply(ctx)
-		})
+// CreateSecurityGroupRuleForTargetGroup ...
+func CreateSecurityGroupRuleForTargetGroup(meta pgocomp.Meta, provider *aws.Provider, sg *ec2.SecurityGroup, tg *lb.TargetGroup, cidrBlocks []string) *pgocomp.ComponentWithMeta[*ec2.SecurityGroupRule] {
+	return awsc.NewSecurityGroupRule(
+		meta, &ec2.SecurityGroupRuleArgs{
+			Type:            pulumi.String("ingress"),
+			Protocol:        pulumi.String(("tcp")),
+			SecurityGroupId: sg.ID(),
+			CidrBlocks:      pulumi.ToStringArray(cidrBlocks),
+			FromPort:        tg.Port.Elem(),
+			ToPort:          tg.Port.Elem(),
+		}, pulumi.Provider(provider), pulumi.Protect(meta.Protect), pulumi.DependsOn([]pulumi.Resource{sg}))
+}
 
+// CreateSubnetAndAssociateToRoute takes a meta, some parameters and a vpc and returns a SubnetComponent
+func CreateSubnetAndAssociateToRoute(meta pgocomp.Meta, params SubnetParameters, az string, provider *aws.Provider, vpc *ec2.Vpc, rt *ec2.RouteTable) *pgocomp.ComponentWithMeta[*ec2.Subnet] {
+	return pgocomp.NewComponentWithMeta(meta, func(ctx *pulumi.Context, name string) (*ec2.Subnet, error) {
+		var subnet *ec2.Subnet
+		err := CreateSubnet(meta, params, az, provider, vpc, rt).GetAndThen(ctx, func(s *pgocomp.GetComponentWithMetaResponse[*ec2.Subnet]) error {
+			subnet = s.Component
+			return AssociateRouteTableToSubnet(pgocomp.Meta{Name: meta.Name + "-route-association"}, provider, subnet, rt).Apply(ctx)
+		})
 		return subnet, err
 	})
 }
 
-// CreateSubnet takes a name, some parameters and a vpc and returns a SubnetComponent
-func CreateSubnet(name string, params SubnetParameters, provider *aws.Provider, vpc *ec2.Vpc, rt *ec2.RouteTable) *pgocomp.Component[*ec2.Subnet] {
-	if !params.Active {
-		return pgocomp.NewInactiveComponent[*ec2.Subnet](name)
-	}
+// CreateSubnet takes a meta, some parameters and a vpc and returns a SubnetComponent
+func CreateSubnet(meta pgocomp.Meta, params SubnetParameters, az string, provider *aws.Provider, vpc *ec2.Vpc, rt *ec2.RouteTable) *pgocomp.ComponentWithMeta[*ec2.Subnet] {
 	dependsOn := []pulumi.Resource{vpc}
 	if rt != nil {
 		dependsOn = append(dependsOn, rt)
 	}
 	return awsc.NewSubnet(
-		name,
+		meta,
 		&ec2.SubnetArgs{
-			AvailabilityZone: pulumi.String(params.AvailabilityZone),
+			AvailabilityZone: pulumi.String(az),
 			VpcId:            vpc.ID(),
 			CidrBlock:        pulumi.String(params.CidrBlock),
 		},
-		pulumi.Provider(provider),
+		pulumi.Provider(provider), pulumi.Protect(meta.Protect),
 		pulumi.DependsOn(dependsOn),
 	)
 }
 
-// CreateInternetGateway takes a name, a vpc and returns an InternetGateway component
-func CreateInternetGateway(name string, provider *aws.Provider, vpc *ec2.Vpc) *pgocomp.Component[*ec2.InternetGateway] {
+// CreateInternetGateway takes a meta, a vpc and returns an InternetGateway component
+func CreateInternetGateway(meta pgocomp.Meta, provider *aws.Provider, vpc *ec2.Vpc) *pgocomp.ComponentWithMeta[*ec2.InternetGateway] {
 	return awsc.NewInternetGateway(
-		name,
+		meta,
 		&ec2.InternetGatewayArgs{},
-		pulumi.Provider(provider),
+		pulumi.Provider(provider), pulumi.Protect(meta.Protect),
 		pulumi.DependsOn([]pulumi.Resource{vpc}),
 	)
 }
 
-// AttachInternetGatewayToVPC takes a name, a vpc, an internet gateway and returnas an InternetGatewayAttachment Component
-func AttachInternetGatewayToVPC(name string, provider *aws.Provider, vpc *ec2.Vpc, igw *ec2.InternetGateway) *pgocomp.Component[*ec2.InternetGatewayAttachment] {
+// AttachInternetGatewayToVPC takes a meta, a vpc, an internet gateway and returnas an InternetGatewayAttachment Component
+func AttachInternetGatewayToVPC(meta pgocomp.Meta, provider *aws.Provider, vpc *ec2.Vpc, igw *ec2.InternetGateway) *pgocomp.ComponentWithMeta[*ec2.InternetGatewayAttachment] {
 	return awsc.NewInternetGatewayAttachment(
-		name,
+		meta,
 		&ec2.InternetGatewayAttachmentArgs{
 			VpcId:             vpc.ID(),
 			InternetGatewayId: igw.ID(),
 		},
-		pulumi.Provider(provider),
+		pulumi.Provider(provider), pulumi.Protect(meta.Protect),
 		pulumi.DependsOn([]pulumi.Resource{vpc, igw}),
 	)
 }
 
 // CreateRouteTable takes a name and a vpc and returns a RouteTable Component
-func CreateRouteTable(name string, provider *aws.Provider, vpc *ec2.Vpc) *pgocomp.Component[*ec2.RouteTable] {
+func CreateRouteTable(meta pgocomp.Meta, provider *aws.Provider, vpc *ec2.Vpc) *pgocomp.ComponentWithMeta[*ec2.RouteTable] {
 	return awsc.NewRouteTable(
-		name,
+		meta,
 		&ec2.RouteTableArgs{
 			VpcId: vpc.ID(),
 		},
-		pulumi.Provider(provider),
+		pulumi.Provider(provider), pulumi.Protect(meta.Protect),
 		pulumi.DependsOn([]pulumi.Resource{vpc}),
 	)
 }
 
-// CreateAndAttachDefaultRoute takes a name, a route table, an internetgateway and an internet gateway attachment and returns a Route Component
-func CreateAndAttachDefaultRoute(name string, provider *aws.Provider, rt *ec2.RouteTable, igw *ec2.InternetGateway, iga *ec2.InternetGatewayAttachment) *pgocomp.Component[*ec2.Route] {
+// CreateAndAttachDefaultRoute takes a meta, a route table, an internetgateway and an internet gateway attachment and returns a Route Component
+func CreateAndAttachDefaultRoute(meta pgocomp.Meta, provider *aws.Provider, rt *ec2.RouteTable, igw *ec2.InternetGateway, iga *ec2.InternetGatewayAttachment) *pgocomp.ComponentWithMeta[*ec2.Route] {
 	return awsc.NewRoute(
-		name,
+		meta,
 		&ec2.RouteArgs{
 			RouteTableId:         rt.ID(),
 			DestinationCidrBlock: pulumi.String("0.0.0.0/0"),
 			GatewayId:            igw.ID(),
 		},
-		pulumi.Provider(provider),
+		pulumi.Provider(provider), pulumi.Protect(meta.Protect),
 		pulumi.DependsOn([]pulumi.Resource{igw, iga}),
 	)
 }
 
 // AssociateRouteTableToSubnet associates a subnet to a route table
-func AssociateRouteTableToSubnet(name string, provider *aws.Provider, subnet *ec2.Subnet, routeTable *ec2.RouteTable) *pgocomp.Component[*ec2.RouteTableAssociation] {
-	return awsc.NewRouteTableAssociation(name, &ec2.RouteTableAssociationArgs{
+func AssociateRouteTableToSubnet(meta pgocomp.Meta, provider *aws.Provider, subnet *ec2.Subnet, routeTable *ec2.RouteTable) *pgocomp.ComponentWithMeta[*ec2.RouteTableAssociation] {
+	return awsc.NewRouteTableAssociation(meta, &ec2.RouteTableAssociationArgs{
 		RouteTableId: routeTable.ID(),
 		SubnetId:     subnet.ID(),
-	}, pulumi.Provider(provider))
+	}, pulumi.Provider(provider), pulumi.Protect(meta.Protect))
 }
