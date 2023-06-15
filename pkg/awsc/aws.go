@@ -127,3 +127,8 @@ func NewRouteTableAssociation(meta pgocomp.Meta, args *ec2.RouteTableAssociation
 func NewCertificate(meta pgocomp.Meta, args *acm.CertificateArgs, opts ...pulumi.ResourceOption) *pgocomp.ComponentWithMeta[*acm.Certificate] {
 	return pgocomp.NewPulumiComponentWithMeta(acm.NewCertificate, meta, args, opts...)
 }
+
+// NewListenerRule add a new rule to the listener
+func NewListenerRule(meta pgocomp.Meta, args *lb.ListenerRuleArgs, opts ...pulumi.ResourceOption) *pgocomp.ComponentWithMeta[*lb.ListenerRule] {
+	return pgocomp.NewPulumiComponentWithMeta(lb.NewListenerRule, meta, args, opts...)
+}

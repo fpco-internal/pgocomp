@@ -434,21 +434,106 @@ func CreateVPC(meta pgocomp.Meta, params VpcParameters, provider *aws.Provider) 
 
 // CreateListener creates a new Listener Component
 func CreateListener(meta pgocomp.Meta, params LBListenerParameters, provider *aws.Provider, loadBalancer *lb.LoadBalancer, tg *lb.TargetGroup, sg *ec2.SecurityGroup, certs map[string]*acm.Certificate) *pgocomp.ComponentWithMeta[*lb.Listener] {
-	args := &lb.ListenerArgs{
-		Port:            pulumi.Int(params.Port),
-		LoadBalancerArn: loadBalancer.ID(),
-		Protocol:        pulumi.String(params.Protocol),
-		DefaultActions: lb.ListenerDefaultActionArray{
-			lb.ListenerDefaultActionArgs{
-				TargetGroupArn: tg.ID(),
-				Type:           pulumi.String("forward"),
+
+	return pgocomp.NewComponentWithMeta[*lb.Listener](meta, func(ctx *pulumi.Context, name string) (response *lb.Listener, err error) {
+		args := &lb.ListenerArgs{
+			Port:            pulumi.Int(params.Port),
+			LoadBalancerArn: loadBalancer.ID(),
+			Protocol:        pulumi.String(params.Protocol),
+			DefaultActions: lb.ListenerDefaultActionArray{
+				lb.ListenerDefaultActionArgs{
+					TargetGroupArn: tg.ID(),
+					Type:           pulumi.String("forward"),
+				},
 			},
-		},
-	}
-	if cert, ok := certs[params.CertificateLookupName]; ok {
-		args.CertificateArn = cert.ID()
-	}
-	return awsc.NewListener(meta, args, pulumi.Provider(provider), pulumi.Protect(meta.Protect))
+		}
+		if cert, ok := certs[params.CertificateLookupName]; ok {
+			args.CertificateArn = cert.ID()
+		}
+		err = awsc.NewListener(meta, args, pulumi.Provider(provider), pulumi.Protect(meta.Protect)).GetAndThen(ctx, func(l *pgocomp.GetComponentWithMetaResponse[*lb.Listener]) (err error) {
+			response = l.Component
+			for _, rule := range params.Rules {
+				var conditions lb.ListenerRuleConditionArray
+				for _, condition := range rule.Conditions {
+					switch condition.RuleConditionType {
+					case PathPattern:
+						conditions = append(conditions, lb.ListenerRuleConditionArgs{
+							PathPattern: lb.ListenerRuleConditionPathPatternArgs{
+								Values: func() (array pulumi.StringArray) {
+									for _, pattern := range condition.PathPatterns {
+										array = append(array, pulumi.String(pattern))
+									}
+									return
+								}(),
+							},
+						})
+					case HostHeader:
+						conditions = append(conditions, lb.ListenerRuleConditionArgs{
+							HostHeader: lb.ListenerRuleConditionHostHeaderArgs{
+								Values: func() (array pulumi.StringArray) {
+									for _, pattern := range condition.HostHeaders {
+										array = append(array, pulumi.String(pattern))
+									}
+									return
+								}(),
+							},
+						})
+					case HTTPHeader:
+						conditions = append(conditions, lb.ListenerRuleConditionArgs{
+							HttpHeader: lb.ListenerRuleConditionHttpHeaderArgs{
+								HttpHeaderName: pulumi.String(condition.HTTPHeader.Name),
+								Values: func() (array pulumi.StringArray) {
+									for _, pattern := range condition.HTTPHeader.Values {
+										array = append(array, pulumi.String(pattern))
+									}
+									return
+								}(),
+							},
+						})
+					case QueryString:
+						conditions = append(conditions, lb.ListenerRuleConditionArgs{
+							QueryStrings: func() (array lb.ListenerRuleConditionQueryStringArray) {
+								for _, pattern := range condition.QueryString {
+									array = append(array, lb.ListenerRuleConditionQueryStringArgs{
+										Key:   pulumi.String(pattern.Key),
+										Value: pulumi.String(pattern.Value),
+									})
+								}
+								return
+							}(),
+						})
+					case SourceIP:
+						conditions = append(conditions, lb.ListenerRuleConditionArgs{
+							SourceIp: lb.ListenerRuleConditionSourceIpArgs{
+								Values: func() (array pulumi.StringArray) {
+									for _, pattern := range condition.SourceIPs {
+										array = append(array, pulumi.String(pattern))
+									}
+									return
+								}(),
+							},
+						})
+					}
+				}
+				err = awsc.NewListenerRule(rule.Meta, &lb.ListenerRuleArgs{
+					Actions: lb.ListenerRuleActionArray{
+						lb.ListenerRuleActionArgs{
+							TargetGroupArn: tg.ID(),
+							Type:           pulumi.String("forward"),
+						},
+					},
+					ListenerArn: l.Component.ID(),
+					Conditions:  conditions,
+					Priority:    pulumi.Int(rule.Priority),
+				},
+					pulumi.Provider(provider)).
+					Apply(ctx)
+			}
+			return
+		})
+		return
+	})
+
 }
 
 // CreateTargetGroup creates a new LoadBalancer Component

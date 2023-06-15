@@ -124,16 +124,44 @@ type LoadBalancerParameters struct {
 	Listeners []LBListenerParameters
 }
 
+// LBRuleConditionType ...
+type LBRuleConditionType int
+
+const (
+	//PathPattern ...
+	PathPattern LBRuleConditionType = iota
+	//HostHeader ...
+	HostHeader
+	//HTTPHeader ...
+	HTTPHeader
+	//QueryString ...
+	QueryString
+	//SourceIP ...
+	SourceIP
+)
+
 // LBRuleParameters is the paramenters for a listener
 type LBRuleParameters struct {
 	pgocomp.Meta
-	Conditions []struct {
-		Field  string
-		values []string
-	}
-	ListenerLookupName    string
 	TargetGroupLookupName string
 	Priority              int
+	Conditions            []LBRuleConditionParameters
+}
+
+// LBRuleConditionParameters ...
+type LBRuleConditionParameters struct {
+	RuleConditionType LBRuleConditionType
+	PathPatterns      []string
+	HostHeaders       []string
+	HTTPHeader        struct {
+		Name   string
+		Values []string
+	}
+	QueryString []struct {
+		Key   string
+		Value string
+	}
+	SourceIPs []string
 }
 
 // LBListenerParameters is the paramenters for a listener

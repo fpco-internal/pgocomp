@@ -1,8 +1,6 @@
 package main
 
 import (
-	"os"
-
 	pgo "github.com/fpco-internal/pgocomp"
 	"github.com/fpco-internal/pgocomp/pkg/awsc/awscinfra"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -19,11 +17,6 @@ func main() {
 					Region: "us-east-1",
 				},
 				CidrBlock: "10.0.0.0/16",
-				Certificates: []awscinfra.CertificateParameters{{
-					Meta:             pgo.Meta{Name: "mycert", Protect: true},
-					Domain:           "*.aws.llgconsultoria.com",
-					ValidationMethod: awscinfra.ValidationByDNS,
-				}},
 				Partitions: []awscinfra.NetworkPartitionParameters{{
 					Meta:     pgo.Meta{Name: "public"},
 					IsPublic: true,
@@ -35,7 +28,7 @@ func main() {
 						CidrBlock: "10.0.2.0/24",
 					}},
 					LoadBalancers: []awscinfra.LoadBalancerParameters{{
-						Meta: pgo.Meta{Name: "lb1", Protect: true},
+						Meta: pgo.Meta{Name: "lb1", Protect: false},
 						Type: awscinfra.Application,
 						Listeners: []awscinfra.LBListenerParameters{{
 							Meta:                  pgo.Meta{Name: "http"},
@@ -47,12 +40,30 @@ func main() {
 							Port:                  8080,
 							Protocol:              awscinfra.HTTP,
 							TargetGroupLookupName: "http",
-						}, {
-							Meta:                  pgo.Meta{Name: "https"},
-							Port:                  443,
-							Protocol:              awscinfra.LBProtocol(awscinfra.TGProtoHTTPS),
-							TargetGroupLookupName: "http",
-							CertificateLookupName: "mycert",
+							Rules: []awscinfra.LBRuleParameters{
+								{
+									Meta:                  pgo.Meta{Name: "http8080-rule1"},
+									TargetGroupLookupName: "http",
+									Priority:              1,
+									Conditions: []awscinfra.LBRuleConditionParameters{
+										{
+											RuleConditionType: awscinfra.PathPattern,
+											PathPatterns:      []string{"/web1"},
+										},
+									},
+								},
+								{
+									Meta:                  pgo.Meta{Name: "http8080-rule2"},
+									TargetGroupLookupName: "http",
+									Priority:              2,
+									Conditions: []awscinfra.LBRuleConditionParameters{
+										{
+											RuleConditionType: awscinfra.PathPattern,
+											PathPatterns:      []string{"/web2"},
+										},
+									},
+								},
+							},
 						}},
 					}},
 					LBTargetGroups: []awscinfra.LBTargetGroupParameters{{
@@ -75,17 +86,6 @@ func main() {
 							Memory:         512,
 							AssignPublicIP: true,
 							Containers: []awscinfra.ContainerDefinition{{
-								Name:   "discordbot",
-								Image:  "gracig/bot:latest",
-								CPU:    128,
-								Memory: 256,
-								Environment: []awscinfra.ContainerEnvironmentVar{
-									{
-										Name:  "DISCORD_TOKEN",
-										Value: os.Getenv("DISCORD_TOKEN"),
-									},
-								},
-							}, {
 								Name:   "http",
 								Image:  "yeasy/simple-web:latest",
 								CPU:    128,
