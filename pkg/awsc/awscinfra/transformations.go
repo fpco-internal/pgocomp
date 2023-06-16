@@ -1,11 +1,12 @@
 package awscinfra
 
 import (
-	"encoding/json"
-
+	jsoniter "github.com/json-iterator/go"
 	ecsn "github.com/pulumi/pulumi-aws-native/sdk/go/aws/ecs"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
+
+var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
 // ECSNativeTaskDefinitionContainerDefinitionArray transform containers into a ECS Native array
 func (c *ECSServiceParameters) ECSNativeTaskDefinitionContainerDefinitionArray() (array ecsn.TaskDefinitionContainerDefinitionArray) {
