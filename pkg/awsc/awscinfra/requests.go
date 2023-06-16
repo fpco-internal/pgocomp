@@ -55,7 +55,7 @@ type NetworkPartitionParameters struct {
 type ContainerDefinition struct {
 	Name         string                    `json:"name"`
 	Image        string                    `json:"image"`
-	Essential    *bool                     `json:"essential,omitempty"`
+	Essential    bool                      `json:"essential"`
 	PortMappings []ContainerPortMapping    `json:"portMappings,omitempty"`
 	Environment  []ContainerEnvironmentVar `json:"environment,omitempty"`
 	EntryPoint   []string                  `json:"entryPoint,omitempty"`
