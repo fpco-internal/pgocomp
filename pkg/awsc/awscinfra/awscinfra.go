@@ -362,7 +362,7 @@ func CreateEcsFargateServiceComponent(
 					return []pulumi.ResourceOption{
 						pulumi.Provider(provider), pulumi.Protect(meta.Protect),
 						pulumi.DependsOn(dependsOn),
-						//					pulumi.ReplaceOnChanges([]string{"*"}),
+						pulumi.IgnoreChanges([]string{"Family"}),
 					}
 				}()...).GetAndThen(ctx, func(taskDef *pgocomp.GetComponentWithMetaResponse[*ecs.TaskDefinition]) error {
 				return awsc.NewECSService(params.Meta, &ecs.ServiceArgs{
@@ -382,7 +382,6 @@ func CreateEcsFargateServiceComponent(
 						SecurityGroups: pulumi.StringArray{sg.Component.ID()},
 					},
 					LoadBalancers: func() (array ecs.ServiceLoadBalancerArray) {
-
 						for _, c := range params.Containers {
 							for _, p := range c.PortMappings {
 								if tg, ok := targetGroups[p.TargetGroupLookupName]; ok {
