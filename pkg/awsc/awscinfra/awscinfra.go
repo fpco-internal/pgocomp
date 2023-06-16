@@ -342,7 +342,7 @@ func CreateEcsFargateServiceComponent(
 					RequiresCompatibilities: pulumi.StringArray{
 						pulumi.String("FARGATE"),
 					},
-					Family:               pulumi.String("PULUMI-AUTO"),
+					Family:               pulumi.String(meta.Name + "-task"),
 					Cpu:                  pulumi.String(strconv.Itoa(params.CPU)),
 					Memory:               pulumi.String(strconv.Itoa(params.Memory)),
 					ContainerDefinitions: pulumi.String(containerDefinitions),
@@ -362,7 +362,6 @@ func CreateEcsFargateServiceComponent(
 					return []pulumi.ResourceOption{
 						pulumi.Provider(provider), pulumi.Protect(meta.Protect),
 						pulumi.DependsOn(dependsOn),
-						pulumi.IgnoreChanges([]string{"Family"}),
 					}
 				}()...).GetAndThen(ctx, func(taskDef *pgocomp.GetComponentWithMetaResponse[*ecs.TaskDefinition]) error {
 				return awsc.NewECSService(params.Meta, &ecs.ServiceArgs{
