@@ -619,7 +619,7 @@ func CreateSecurityGroupRuleForTargetGroup(meta pgocomp.Meta, provider *aws.Prov
 			CidrBlocks:      pulumi.StringArray{vpc.CidrBlock},
 			FromPort:        tg.Port.Elem(),
 			ToPort:          tg.Port.Elem(),
-		}, pulumi.Provider(provider), pulumi.Protect(meta.Protect), pulumi.DependsOn([]pulumi.Resource{sg}))
+		}, pulumi.Provider(provider), pulumi.Protect(meta.Protect), pulumi.DependsOn([]pulumi.Resource{sg}), pulumi.DeleteBeforeReplace(true))
 }
 
 // CreateSubnetAndAssociateToRoute takes a meta, some parameters and a vpc and returns a SubnetComponent
