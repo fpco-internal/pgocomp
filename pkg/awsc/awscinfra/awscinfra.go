@@ -234,13 +234,13 @@ func CreateLoadBalancerComponent(meta pgocomp.Meta, params LoadBalancerParameter
 					CreateLoadBalancerAndAssociateToSubnets(meta, params.Type, provider, subnets, sg.Component).GetAndThen(ctx, func(loadBalancer *pgocomp.GetComponentWithMetaResponse[*lb.LoadBalancer]) error {
 						response.LoadBalancer = loadBalancer
 						ctx.Export(loadBalancer.Meta.FullName()+"-dns", loadBalancer.Component.DnsName)
+						var ltgs = make(map[string]*lb.TargetGroup)
+						for k, v := range tgs {
+							ltgs[k] = v.Component
+						}
 						for _, lis := range params.Listeners {
-							tg, ok := tgs[lis.TargetGroupLookupName]
-							if !ok {
-								return fmt.Errorf("Target group Lookup Name %s not found", lis.TargetGroupLookupName)
-							}
 							if err := CreateListener(
-								lis.Meta, lis, provider, loadBalancer.Component, tg.Component, sg.Component, certs).GetAndThen(ctx, func(l *pgocomp.GetComponentWithMetaResponse[*lb.Listener]) error {
+								lis.Meta, lis, provider, loadBalancer.Component, ltgs, sg.Component, certs).GetAndThen(ctx, func(l *pgocomp.GetComponentWithMetaResponse[*lb.Listener]) error {
 								response.Listeners[l.Meta.Name] = l
 								var cidrs pulumi.StringArray
 								if params.IsInternal {
@@ -440,9 +440,14 @@ func CreateVPC(meta pgocomp.Meta, params VpcParameters, provider *aws.Provider) 
 }
 
 // CreateListener creates a new Listener Component
-func CreateListener(meta pgocomp.Meta, params LBListenerParameters, provider *aws.Provider, loadBalancer *lb.LoadBalancer, tg *lb.TargetGroup, sg *ec2.SecurityGroup, certs map[string]*acm.Certificate) *pgocomp.ComponentWithMeta[*lb.Listener] {
+func CreateListener(meta pgocomp.Meta, params LBListenerParameters, provider *aws.Provider, loadBalancer *lb.LoadBalancer, tgs map[string]*lb.TargetGroup, sg *ec2.SecurityGroup, certs map[string]*acm.Certificate) *pgocomp.ComponentWithMeta[*lb.Listener] {
 
 	return pgocomp.NewComponentWithMeta[*lb.Listener](meta, func(ctx *pulumi.Context, name string) (response *lb.Listener, err error) {
+		tg, ok := tgs[params.TargetGroupLookupName]
+		if !ok {
+			return nil, fmt.Errorf("Target group Lookup Name %s not found", params.TargetGroupLookupName)
+		}
+
 		args := &lb.ListenerArgs{
 			Port:            pulumi.Int(params.Port),
 			LoadBalancerArn: loadBalancer.ID(),
@@ -522,10 +527,14 @@ func CreateListener(meta pgocomp.Meta, params LBListenerParameters, provider *aw
 						})
 					}
 				}
+				rtg, ok := tgs[rule.TargetGroupLookupName]
+				if !ok {
+					return fmt.Errorf("Target group Lookup Name %s not found", rule.TargetGroupLookupName)
+				}
 				err = awsc.NewListenerRule(rule.Meta, &lb.ListenerRuleArgs{
 					Actions: lb.ListenerRuleActionArray{
 						lb.ListenerRuleActionArgs{
-							TargetGroupArn: tg.ID(),
+							TargetGroupArn: rtg.ID(),
 							Type:           pulumi.String("forward"),
 						},
 					},
