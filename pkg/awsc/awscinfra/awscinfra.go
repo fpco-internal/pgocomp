@@ -306,6 +306,14 @@ func matchOrPanic(pattern string, str string) bool {
 	return b
 }
 
+func valueOrDefault[T comparable](value T, _default T) T {
+	var zero T
+	if value == zero {
+		return _default
+	}
+	return value
+}
+
 // CreateCertificate creates a new certificate with a CertificateParameters
 func CreateCertificate(meta pgocomp.Meta, params CertificateParameters, provider *aws.Provider) *pgocomp.ComponentWithMeta[*acm.Certificate] {
 	return awsc.NewCertificate(meta, &acm.CertificateArgs{
@@ -559,6 +567,14 @@ func CreateTargetGroup(meta pgocomp.Meta, params LBTargetGroupParameters, provid
 		VpcId:      vpc.ID(),
 		Protocol:   pulumi.String(params.Protocol),
 		TargetType: pulumi.String("ip"),
+		HealthCheck: lb.TargetGroupHealthCheckArgs{
+			Enabled:            pulumi.Bool(!params.Inactive),
+			HealthyThreshold:   pulumi.Int(valueOrDefault(params.HealthCheck.HealthyThreshold, 3)),
+			Path:               pulumi.String(valueOrDefault(params.HealthCheck.Path, "/")),
+			UnhealthyThreshold: pulumi.Int(valueOrDefault(params.HealthCheck.UnhealthyThreshold, 5)),
+			Timeout:            pulumi.Int(valueOrDefault(params.HealthCheck.Timeout, 6)),
+			Matcher:            pulumi.String(valueOrDefault(params.HealthCheck.StatusCodeRange, "200-399")),
+		},
 	}, pulumi.Provider(provider), pulumi.Protect(meta.Protect))
 }
 

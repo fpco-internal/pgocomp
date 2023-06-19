@@ -205,9 +205,20 @@ const (
 // LBTargetGroupParameters is the paramenters for a listener
 type LBTargetGroupParameters struct {
 	pgocomp.Meta
-	Port       int
-	Protocol   TGProtocol
-	TargetType TargetType
+	Port        int
+	Protocol    TGProtocol
+	TargetType  TargetType
+	HealthCheck LBTargetGroupHealthCHeck
+}
+
+// LBTargetGroupHealthCHeck ...
+type LBTargetGroupHealthCHeck struct {
+	Disabled           bool
+	HealthyThreshold   int
+	Path               string
+	UnhealthyThreshold int
+	Timeout            int
+	StatusCodeRange    string
 }
 
 // GatewayParameters are parameters used by the CreateSubnet function
